@@ -30,12 +30,12 @@ Python standard library only. Project settings: config.json next to this file (s
   POST /api/sync/assets          assets were updated (recompile everything)
 Usage: python3 app.py --site /srv/paperreview/site --db /srv/paperreview/data/review.db --port 8801 [--data DIR]
 """
-import argparse, hashlib, json, mimetypes, os, queue, sqlite3, subprocess, sys, threading, time
+import argparse, hashlib, json, mimetypes, os, queue, re, sqlite3, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from editor import CFG, DOCS, Compiler, Conflict, DiffBuilder, NotReady, Paths, Repo   # noqa: E402
+from editor import CFG, DOCS, TITLES, Compiler, Conflict, DiffBuilder, NotReady, Paths, Repo   # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--site', required=True)
@@ -241,6 +241,27 @@ class H(BaseHTTPRequestHandler):
         if path.startswith('/api/boxes/'):
             c = COMP[path.rsplit('/', 1)[1]]
             return self.send(200, c.synctex_view(int(q['from']), int(q['to'])))
+        if path.startswith('/api/hunks/'):
+            # changed paragraphs of the web text against a baseline: 'baseline' (the reviewed version, from the git
+            # tag), 'last_sync' (the last laptop sync) or a version id from the history
+            doc = path.rsplit('/', 1)[1]
+            fn, against = DOCS[doc], q.get('against', 'baseline')
+            with REPO.lock:
+                head = REPO.head()
+                new = REPO.read(fn)
+                if against == 'baseline':
+                    old = open(os.path.join(P.assets, 'baseline', fn), encoding='utf8').read()
+                elif against == 'last_sync':
+                    old = REPO.read(fn, 'laptop')
+                elif re.fullmatch(r'[0-9a-f]{7,40}', against):
+                    old = REPO.read(fn, against)
+                else:
+                    raise ValueError('against: baseline, last_sync or a version id')
+            from hunks import hunks as mk_hunks
+            hs = mk_hunks(old.replace('\r\n', '\n'), new, fn)
+            for h in hs:
+                h['doc'] = doc; h['title'] = TITLES.get(doc, doc)
+            return self.send(200, {'against': against, 'rev': head, 'hunks': hs})
         if path.startswith('/api/blame/'):
             return self.send(200, REPO.blame(path.rsplit('/', 1)[1]))
         if path == '/api/history':

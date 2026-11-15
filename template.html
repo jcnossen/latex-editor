@@ -172,6 +172,28 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 #liveView .page { cursor: text; }
 #liveView .textLayer { inset: auto; left: 0; top: 0; transform-origin: 0 0; }
 .hunk .by { margin-left: auto; color: var(--fg3); font-size: 11.5px; }
+/* track changes on the live PDF: added text underlined, deletions as a marker */
+.trk { display: flex; align-items: center; gap: 8px; font-size: 12.5px; margin-bottom: 6px; cursor: pointer; }
+select.edfind { height: 30px; }
+.trk-n { color: var(--fg3); font-size: 12px; margin-top: 4px; }
+.trk-add { position: absolute; z-index: 1; pointer-events: none; background: rgba(214, 40, 40, .09); border-bottom: 2px solid rgba(204, 20, 20, .85); }
+.trk-del { position: absolute; z-index: 1; pointer-events: none; width: 0; border-left: 2.5px solid rgba(110, 118, 129, .95); }
+.trk-del::before { content: ''; position: absolute; left: -5px; top: -4px; border: 4px solid transparent; border-top: 5px solid rgba(110, 118, 129, .95); }
+body.trk-off .trk-add, body.trk-off .trk-del { display: none; }
+.trk-add.acc { background: transparent; border-bottom-color: rgba(26, 127, 55, .55); border-bottom-style: dotted; } .trk-del.acc { opacity: .35; }
+.trk-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.tl { border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; cursor: pointer; }
+.tl:hover { border-color: var(--accent); } .tl.acc { opacity: .6; }
+.tl .h { display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; color: var(--fg3); }
+.tl .h .w { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+.tl .x { font: 12px/1.4 ui-monospace, Consolas, monospace; margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+.tl .x ins { text-decoration: none; background: var(--chg-bg); color: var(--chg-fg); } .tl .x del { color: var(--del-fg); }
+.tl .b { display: flex; gap: 6px; margin-top: 5px; }
+.tl .b button { height: 24px; padding: 0 9px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 11.5px var(--ui); cursor: pointer; }
+.tl .b .ok { color: var(--ok); border-color: var(--ok); }
+.ctip { position: fixed; z-index: 45; max-width: 420px; pointer-events: none; background: var(--fg); color: var(--panel); border-radius: 7px;
+  padding: 7px 10px; font: 12px/1.4 var(--ui); box-shadow: 0 4px 14px rgba(0, 0, 0, .25); display: flex; flex-direction: column; gap: 6px; }
+.ctip b.a { color: #ff9b91; } .ctip b.d { color: #c3c9d1; } .ctip .who { opacity: .85; } .ctip .t { opacity: .8; margin-top: 2px; }
 /* feedback: drawings and notes on the PDF, voice notes */
 .fbar { position: fixed; left: 340px; bottom: 16px; z-index: 25; display: flex; align-items: center; gap: 6px; padding: 5px; background: var(--panel);
   border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 4px 16px rgba(0, 0, 0, .18); }
@@ -249,6 +271,12 @@ body.drawing #liveView .textLayer { pointer-events: none; }
     <nav class="list" id="hunklist" aria-label="Source changes" hidden></nav>
     <nav class="list" id="cmtlist" aria-label="Comments" hidden></nav>
     <nav class="list edside" id="edlist" aria-label="Editor" hidden>
+      <h3>Track changes</h3>
+      <label class="trk"><input type="checkbox" id="trk-on" checked> Show changes, compared with</label>
+      <select class="edfind" id="trk-base" aria-label="Compare with"><option value="baseline">the reviewed version (baseline)</option><option value="last_sync">the last laptop sync</option></select>
+      <div class="trk-n" id="trk-n"></div>
+      <div class="trk-list" id="trk-list"></div>
+      <div class="trk-n"><a id="trk-pdf" href="diff/main.pdf" target="_blank" rel="noopener">Tracked-changes PDF (latexdiff, vs the baseline)</a> · <a href="diff/SI.pdf" target="_blank" rel="noopener">SI</a></div>
       <h3>Build</h3><div id="ed-builds"></div>
       <h3>Your name</h3><input class="edfind" id="ed-name" type="text" placeholder="Shown with your edits and notes (optional)" autocomplete="name" maxlength="40">
       <h3>Find in the source</h3><input class="edfind" id="ed-find" type="search" placeholder="Words from the paragraph…" autocomplete="off"><div class="hits" id="ed-hits"></div>
@@ -380,6 +408,10 @@ function placeBars(doc) {
         const y1 = P.vp.convertToViewportPoint(it1.transform[4], it1.transform[5])[1];
         top = Math.min(y0, y1); h = Math.max(10, Math.abs(y1 - y0) + 2);
         c._items = [owner[at], owner[Math.min(owner.length - 1, at + c._len - 1)]];
+        // horizontal extent for one-line changes (hover hit-testing on the underlined text)
+        c._single = Math.abs(it1.transform[5] - it0.transform[5]) < 2;
+        c._x0 = P.vp.convertToViewportPoint(it0.transform[4], it0.transform[5])[0];
+        c._x1 = P.vp.convertToViewportPoint(it1.transform[4] + it1.width, it1.transform[5])[0];
         from = at + 1;
       } else {
         const y = c.y > 0 ? P.vp.convertToViewportPoint(0, c.y)[1] : 30;
@@ -812,7 +844,8 @@ async function annotateChanges(doc) {
   const bl = await getBlame(doc); if (!bl?.lines) return;
   for (const f of state.flat.filter((x) => x.doc === doc)) {
     const c = f.c, ln = await lineForChange(doc, c); if (!ln) continue;
-    const t = (c.type === 'a' ? 'Added: ' : 'Deleted: ') + c.text.slice(0, 120) + `\n${whoText(bl.lines[ln - 1])} (source line ${ln})`;
+    c._who = `${whoText(bl.lines[ln - 1])} (source line ${ln})`;
+    const t = (c.type === 'a' ? 'Added: ' : 'Deleted: ') + c.text.slice(0, 120) + '\n' + c._who;
     if (c._bar) c._bar.title = t;
     const li = $('chg-' + state.flat.indexOf(f)); if (li) li.title = t;
   }
@@ -1305,6 +1338,7 @@ function renderNotes(onlyDoc) {
 function afterLiveRender(doc, pages) {
   if (DRAW.pend?.doc === doc && pages[DRAW.pend.page]) pages[DRAW.pend.page].el.append(DRAW.pend.svg);
   renderNotes(doc);
+  trackSoon(doc);
 }
 function showNote(c) {
   const d = document.createElement('div'); d.className = 'cdlg';
@@ -1365,6 +1399,212 @@ $('main').addEventListener('scroll', () => { clearTimeout(focusT); focusT = setT
 for (const ev of ['keyup', 'mouseup', 'select']) $('ed-text').addEventListener(ev, focusSoon);
 window.addEventListener('blur', () => reportFocus());
 document.addEventListener('visibilitychange', () => { if (document.hidden) reportFocus(); });
+
+// ---- track changes on the live PDF (Edit view). The changed paragraphs against the chosen baseline come from the
+// server (/api/hunks); a word diff of each gives the inserted words and the deletion points in the current source,
+// which are located in the PDF text (same normalized matching as the source <-> PDF sync) and marked.
+const TRK = { on: true, against: 'baseline', hunks: {}, marks: {}, seq: {} };
+try { TRK.on = localStorage.getItem('pr-trk') !== '0'; TRK.against = localStorage.getItem('pr-trk-base') || 'baseline'; } catch (e) { /* defaults */ }
+function wordOps(a, b) {
+  // [{t:'+', s, e} (inserted span in b), {t:'-', at, text} (deletion point in b)] from a token LCS
+  const tok = (x) => { const out = []; let m; const re = /\s+|[^\s]+/g; while ((m = re.exec(x))) out.push([m[0], m.index]); return out; };
+  const A = tok(a), B = tok(b), n = A.length, m = B.length;
+  if (n * m > 6e6) return [{ t: '+', s: 0, e: b.length }];
+  const L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i][0] === B[j][0] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const ops = []; let i = 0, j = 0, ins = null, del = null;
+  const flush = () => { if (ins) { ops.push(ins); ins = null; } if (del) { ops.push(del); del = null; } };
+  while (i < n || j < m) {
+    if (i < n && j < m && A[i][0] === B[j][0]) { flush(); i++; j++; }
+    else if (j < m && (i >= n || L[i][j + 1] >= L[i + 1][j])) { const [w, at] = B[j]; ins ??= { t: '+', s: at, e: at }; ins.e = at + w.length; j++; }
+    else { const [w] = A[i]; del ??= { t: '-', at: j < m ? B[j][1] : b.length, text: '' }; del.text += w; i++; }
+  }
+  flush();
+  return ops.filter((o) => o.t === '+' ? b.slice(o.s, o.e).trim() : o.text.trim());
+}
+function findInPages(pages, before, seg, after) {
+  // best (page, start) of `seg` in the normalized page texts, scored on the surrounding text
+  let best = null;
+  // candidate start positions from short exact keys: [key, offset of the segment start within the key]
+  const b6 = before.slice(-6), b10 = before.slice(-10);
+  const keys = [[b6 + seg.slice(0, 6), b6.length], [seg.slice(0, 10), 0], [b10, b10.length]].filter(([k]) => k.length >= 5);
+  for (const [pg, idx] of pages) {
+    const cands = new Set();
+    for (const [k, off] of keys) {
+      let i = -1;
+      while ((i = idx.s.indexOf(k, i + 1)) >= 0 && cands.size < 60) cands.add(i + off);
+      if (cands.size) break;
+    }
+    for (const p of cands) {
+      const sc = matchBack(idx.s, p, before) + matchFwd(idx.s, p, (seg + after).slice(0, 48));
+      if (!best || sc > best.score) best = { pg, idx, p, score: sc };
+    }
+  }
+  return best;
+}
+async function computeTrack(doc) {
+  const seq = (TRK.seq[doc] = (TRK.seq[doc] || 0) + 1);
+  document.querySelectorAll(`#live-${doc} .trk-add, #live-${doc} .trk-del`).forEach((e) => e.remove());
+  TRK.marks[doc] = [];
+  if (!TRK.on || !ED.pages[doc]) return trkCount();
+  let r; try { r = await api(`hunks/${doc}?against=${encodeURIComponent(TRK.against)}`); } catch (e) { return; }
+  if (seq !== TRK.seq[doc]) return;
+  TRK.hunks[doc] = r.hunks;
+  const pages = [];
+  for (const [pg, P] of Object.entries(ED.pages[doc])) pages.push([+pg, await pdfIndex(P)]);
+  const marks = [];
+  for (const h of r.hunks) {
+    if (!h.new.trim()) continue;                                 // a whole paragraph deleted: nothing to point at
+    const si = srcIndex(h.new);
+    const nAt = (c) => { let lo = 0, hi = si.at.length; while (lo < hi) { const md = (lo + hi) >> 1; if (si.at[md] < c) lo = md + 1; else hi = md; } return lo; };
+    const ops = h.old.trim() ? wordOps(h.old, h.new) : [{ t: '+', s: 0, e: h.new.length }];
+    for (const o of ops) {
+      const qa = nAt(o.t === '+' ? o.s : o.at), qb = o.t === '+' ? nAt(o.e) : qa;
+      if (o.t === '+' && qb - qa < 1) continue;                  // only markup / citation keys changed
+      const before = si.s.slice(Math.max(0, qa - 28), qa), seg = si.s.slice(qa, qb), after = si.s.slice(qb, qb + 28);
+      const f = findInPages(pages, before, seg, after);
+      if (!f || f.score < Math.min(18, before.length + Math.min(seg.length, 20) + after.length - 6)) continue;
+      const P = ED.pages[doc][f.pg];
+      if (o.t === '+') {
+        const pEnd = Math.min(f.idx.s.length, f.p + seg.length), lines = [];
+        for (let p = f.p; p < pEnd; p++) {
+          const c0 = charBox(P, f.idx, p), c1 = charBox(P, f.idx, p, true), Lx = lines[lines.length - 1];
+          if (Lx && Math.abs(Lx.top - c0.top) < 3 && c0.x >= Lx.x0 - 2) { Lx.x1 = Math.max(Lx.x1, c1.x); Lx.bottom = Math.max(Lx.bottom, c0.bottom); }
+          else lines.push({ x0: c0.x, x1: c1.x, top: c0.top, bottom: c0.bottom });
+        }
+        for (const Lx of lines) marks.push({ kind: 'a', pg: f.pg, ...Lx, text: h.new.slice(o.s, o.e), line: h.line, hid: h.id, acc: decisions[h.id]?.status === 'accept' });
+      } else {
+        const c = charBox(P, f.idx, f.p);
+        marks.push({ kind: 'd', pg: f.pg, x0: c.x, x1: c.x, top: c.top, bottom: c.bottom, text: o.text, line: h.line, hid: h.id, acc: decisions[h.id]?.status === 'accept' });
+      }
+    }
+  }
+  if (seq !== TRK.seq[doc]) return;
+  for (const mk of marks) {
+    const P = ED.pages[doc][mk.pg]; if (!P) continue;
+    const d = document.createElement('div'); d.className = (mk.kind === 'a' ? 'trk-add' : 'trk-del') + (mk.acc ? ' acc' : '');
+    d.style.left = pct(mk.x0, P.vp0.width); d.style.top = pct(mk.top, P.vp0.height); d.style.height = pct(mk.bottom - mk.top, P.vp0.height);
+    if (mk.kind === 'a') d.style.width = pct(Math.max(1.5, mk.x1 - mk.x0), P.vp0.width);
+    P.el.append(d);
+  }
+  TRK.marks[doc] = marks;
+  trkCount();
+  renderTrkList();
+}
+function trkCount() {
+  const n = (k) => Object.values(TRK.hunks).reduce((s, hs) => s + (hs ? hs.length : 0), 0) && k;
+  const hs = Object.values(TRK.hunks).flat(), ad = Object.values(TRK.marks).flat();
+  $('trk-n').textContent = !TRK.on ? 'Change marking is off.' :
+    `${hs.length} changed paragraph${hs.length === 1 ? '' : 's'}; ${ad.filter((m) => m.kind === 'a').length} marked insertions, ${ad.filter((m) => m.kind === 'd').length} deletions (hover for the old text)`;
+  void n;
+}
+// the changed paragraphs as a list in the sidebar: compact word diff, who, and Accept / Reject; click to go there
+function compactDiff(a, b) {
+  const segs = wordDiff(a, b), out = [];
+  segs.forEach((g, k) => {
+    if (g.t === '=') {
+      let w = g.w;
+      if (w.length > 8) w = (k ? w.slice(0, 4) : []).concat(['…'], k < segs.length - 1 ? w.slice(-4) : []);
+      out.push(esc(w.join(' ')));
+    } else out.push(g.t === '+' ? `<ins>${esc(g.w.join(' '))}</ins>` : `<del>${esc(g.w.join(' '))}</del>`);
+  });
+  return out.join(' ');
+}
+async function renderTrkList() {
+  const L = $('trk-list'); if (!L) return;
+  if (!TRK.on) { L.innerHTML = ''; return; }
+  const items = LIVE.flatMap((d) => (TRK.hunks[d.key] || []));
+  L.innerHTML = '';
+  for (const h of items) {
+    const st = decisions[h.id]?.status || 'open';
+    const el = document.createElement('div'); el.className = 'tl' + (st === 'accept' ? ' acc' : '');
+    el.innerHTML = `<div class="h"><span>${esc(h.doc)} · line ${h.line}</span><span class="w"></span></div><div class="x">${h.old.trim() ? compactDiff(h.old, h.new) : '<ins>' + esc(h.new.slice(0, 300)) + '</ins>'}</div>` +
+      `<div class="b"><button type="button" class="ok">${st === 'accept' ? 'Accepted ✓' : 'Accept'}</button><button type="button" class="rj">Reject</button></div>`;
+    getBlame(h.doc).then((bl) => { const w = bl?.lines?.[h.line - 1]; if (w) { el.querySelector('.w').textContent = w[0]; el.querySelector('.w').title = whoText(w); } });
+    el.onclick = (e) => { if (!e.target.closest('button')) edOpen(h.doc, h.line); };
+    el.querySelector('.ok').onclick = async () => {
+      const ns = st === 'accept' ? 'open' : 'accept';
+      try { await api('decisions/' + h.id, 'PUT', { status: ns }); if (ns === 'open') delete decisions[h.id]; else decisions[h.id] = { status: ns }; } catch (er) { toast('Could not save.'); return; }
+      computeTrack(h.doc);
+    };
+    el.querySelector('.rj').onclick = async () => {
+      if (!h.new.trim()) { toast('This paragraph was deleted; restore it by editing the text around it.'); return; }
+      if (!confirm('Reject this change: put the paragraph back as it was in the version you compare with?')) return;
+      const r = await edApply(h.doc, h.line, h.new, h.old, 'review');
+      if (!r.ok) { toast(r.error); return; }
+      toast('Change rejected; the page updates in a second.');
+    };
+    L.append(el);
+  }
+}
+let trkT = {};
+function trackSoon(doc) { clearTimeout(trkT[doc]); trkT[doc] = setTimeout(() => computeTrack(doc), 250); }
+async function trkBaselines() {
+  // the baseline list: the reviewed version, the last laptop sync, then the saved versions (newest first)
+  let hist = []; try { hist = await api('history?n=60'); } catch (e) { /* keep the two fixed ones */ }
+  const sel = $('trk-base'), keep = TRK.against;
+  sel.innerHTML = '<option value="baseline">the reviewed version (baseline)</option><option value="last_sync">the last laptop sync</option>' +
+    hist.map((c) => `<option value="${c.rev}">${esc(new Date(c.time * 1000).toLocaleString())} · ${esc(c.msg.slice(0, 60))}</option>`).join('');
+  if (![...sel.options].some((o) => o.value === keep)) sel.append(new Option(`version ${keep.slice(0, 8)}`, keep));
+  sel.value = keep;
+}
+$('trk-on').checked = TRK.on; document.body.classList.toggle('trk-off', !TRK.on);
+$('trk-on').addEventListener('change', () => {
+  TRK.on = $('trk-on').checked; document.body.classList.toggle('trk-off', !TRK.on);
+  try { localStorage.setItem('pr-trk', TRK.on ? '1' : '0'); } catch (e) { /* no storage */ }
+  LIVE.forEach((d) => computeTrack(d.key));
+});
+$('trk-base').addEventListener('focus', trkBaselines);
+$('trk-base').addEventListener('change', async () => {
+  TRK.against = $('trk-base').value;
+  try { localStorage.setItem('pr-trk-base', TRK.against); } catch (e) { /* no storage */ }
+  LIVE.forEach((d) => computeTrack(d.key));
+  // the Changes tab follows the same baseline
+  try {
+    const all = []; for (const d of LIVE) all.push(...(await api(`hunks/${d.key}?against=${encodeURIComponent(TRK.against)}`)).hunks);
+    D.hunks = all; renderHunks();
+  } catch (e) { /* keep the list */ }
+});
+// hovering over a marked change in the Edit view: what it was and who changed it
+$('liveView').addEventListener('mousemove', (e) => {
+  if (!TRK.on || DRAW.on) { ctip.hidden = true; return; }
+  const p = pageOf(e.target); if (!p || p.view !== 'edit') { ctip.hidden = true; return; }
+  const P = p.el._P, r = p.el.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * P.vp0.width, y = (e.clientY - r.top) / r.height * P.vp0.height;
+  const hits = (TRK.marks[p.doc] || []).filter((mk) => mk.pg === p.page && y >= mk.top - 1.5 && y <= mk.bottom + 1.5 &&
+    x >= mk.x0 - (mk.kind === 'd' ? 5 : 1) && x <= mk.x1 + (mk.kind === 'd' ? 5 : 1));
+  if (!hits.length) { ctip.hidden = true; return; }
+  const bl = BLAME[p.doc];
+  ctip.innerHTML = hits.slice(0, 3).map((mk) => `<div><b class="${mk.kind}">${mk.kind === 'a' ? 'Added' : 'Deleted'}</b>` +
+    `<span class="who"> · ${esc(bl?.lines?.[mk.line - 1] ? whoText(bl.lines[mk.line - 1]) : 'source line ' + mk.line)}</span>` +
+    `<div class="t">${esc(mk.text.replace(/\s+/g, ' ').slice(0, 220))}${mk.text.length > 220 ? '…' : ''}</div></div>`).join('');
+  ctip.hidden = false;
+  const w = ctip.offsetWidth, h = ctip.offsetHeight;
+  ctip.style.left = Math.min(innerWidth - w - 8, e.clientX + 14) + 'px';
+  ctip.style.top = (e.clientY + 18 + h > innerHeight ? e.clientY - h - 10 : e.clientY + 18) + 'px';
+  if (!bl) getBlame(p.doc);
+});
+$('liveView').addEventListener('mouseleave', () => { ctip.hidden = true; });
+
+// hovering over changed text in the Tracked view: an instant tooltip with what changed and who changed it
+const ctip = document.createElement('div'); ctip.className = 'ctip'; ctip.hidden = true; document.body.append(ctip);
+$('paperView').addEventListener('mousemove', (e) => {
+  const pg = e.target.closest?.('.page'), m = pg && /^p-(.+)-(\d+)$/.exec(pg.id);
+  const doc = m && D.docs.find((d) => d.key === m[1]), P = m && state.pages[m[1]]?.[+m[2]];
+  if (!doc || !P) { ctip.hidden = true; return; }
+  const r = pg.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * P.vp.height, x = (e.clientX - r.left) / r.width * P.vp.width;
+  const hits = doc.changes.filter((c) => c.page === +m[2] && c._top != null && y >= c._top - 2 && y <= c._top + c._h + 2 &&
+    (!c._single || c._x0 == null || (x >= c._x0 - 4 && x <= c._x1 + 4)));
+  if (!hits.length) { ctip.hidden = true; return; }
+  ctip.innerHTML = hits.slice(0, 3).map((c) => `<div><b class="${c.type}">${c.type === 'a' ? 'Added' : 'Deleted'}</b>` +
+    `<span class="who">${c._who ? ' · ' + esc(c._who) : ' · (author unknown)'}</span><div class="t">${esc(c.text.slice(0, 160))}${c.text.length > 160 ? '…' : ''}</div></div>`).join('');
+  ctip.hidden = false;
+  const w = ctip.offsetWidth, h = ctip.offsetHeight;
+  ctip.style.left = Math.min(innerWidth - w - 8, e.clientX + 14) + 'px';
+  ctip.style.top = (e.clientY + 18 + h > innerHeight ? e.clientY - h - 10 : e.clientY + 18) + 'px';
+});
+$('paperView').addEventListener('mouseleave', () => { ctip.hidden = true; });
+$('main').addEventListener('scroll', () => { ctip.hidden = true; }, { passive: true });
 
 // the "Your name" field (Edit sidebar)
 $('ed-name').value = myName();
@@ -1550,8 +1790,12 @@ async function loadServerReview() {
     ED.ready = !!st?.ready;
     if (ED.ready) {
       await loadServerReview();
-      $('v-edit').hidden = false; $('v-paper').textContent = 'Tracked';
-      $('how').innerHTML = '<b>Edit</b>: click a paragraph in the PDF, change its LaTeX and press <b>Ctrl+Enter</b>; the page updates in a second or two. <b>Tracked</b>: all changes since the baseline (rebuilt in the background). Select text and press <b>C</b> to comment.';
+      // one paper view: the live PDF with tracked changes, editable; the separate latexdiff / change-list tabs are hidden
+      $('v-edit').hidden = false; $('v-edit').textContent = 'Paper';
+      $('v-paper').hidden = true; $('v-chg').hidden = true;
+      $('how').innerHTML = 'Changes are <b>underlined</b> (added) or marked <b>▾</b> (deleted); hover to see the old text and who made the change. ' +
+        'Click a paragraph to edit it (<b>Ctrl+Enter</b> saves; the page updates in a second or two). Select text and press <b>C</b> to comment, <b>D</b> to draw, <b>V</b> for a voice note.';
+      document.querySelector('.legend').hidden = true; document.querySelector('.side header .meta + .legend + .meta')?.setAttribute('hidden', '');
     }
   }
   renderMeta(); renderList(); renderFigures(); renderHunks();
@@ -1563,6 +1807,7 @@ async function loadServerReview() {
     setView(['paper', 'figures', 'changes', 'comments'].includes(hv) ? hv : 'edit');
     for (const d of LIVE) edWatch(d.key);
     loadNotes();
+    if (TRK.against !== 'baseline' && TRK.against !== 'last_sync') trkBaselines();
     edHistory();
   } else {
     if (['figures', 'changes', 'comments'].includes(hv)) setView(hv); else setView('paper');
