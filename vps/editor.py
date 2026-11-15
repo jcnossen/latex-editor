@@ -31,6 +31,21 @@ class NotReady(Exception):
     pass
 
 
+def author_name(who):
+    """The author recorded for an edit: 'mcp' = an AI client, 'web' / 'review' = the review page (optionally with the
+    user's name after a colon, e.g. 'web:Jelmer'), 'laptop' = a laptop sync."""
+    who = (who or 'web').strip()
+    kind, _, name = who.partition(':')
+    kind = kind.lower()
+    if kind == 'mcp':
+        return 'AI (MCP)' + (f' for {name}' if name else '')
+    if kind in ('web', 'review'):
+        return f'{name} (web)' if name else 'web editor'
+    if kind in ('laptop', 'revert'):
+        return kind
+    return who[:40]
+
+
 class Paths:
     def __init__(self, data):
         self.data = data
@@ -51,9 +66,13 @@ class Repo:
         self.P = P
         self.lock = threading.RLock()
         self.listeners = []          # called (reason) after the web text changed
+        self._blame_cache = {}
 
-    def git(self, *a, input=None, check=True):
-        r = subprocess.run(['git', '-C', self.P.repo, *a], input=input, capture_output=True, env=self.P.env())
+    def git(self, *a, input=None, check=True, author=None):
+        env = self.P.env()
+        if author:      # who made this version: shown in the history and in the per-line blame (hover in the page)
+            env.update(GIT_AUTHOR_NAME=author[:60], GIT_AUTHOR_EMAIL='editor@paperreview')
+        r = subprocess.run(['git', '-C', self.P.repo, *a], input=input, capture_output=True, env=env)
         if check and r.returncode:
             raise RuntimeError(f'git {a[0]}: {r.stderr.decode(errors="replace").strip()}')
         return r.stdout.decode('utf8', errors='replace')
@@ -109,7 +128,7 @@ class Repo:
                 f.write('\n'.join(lines))
             self.git('add', fn)
             summary = re.sub(r'\s+', ' ', new).strip()[:60]
-            self.git('commit', '-q', '-m', f'{who}: {doc} line {i + 1}: {summary}')
+            self.git('commit', '-q', '-m', f'{who}: {doc} line {i + 1}: {summary}', author=author_name(who))
             head = self.head()
         self.changed(doc)
         return {'rev': head, 'start': i + 1, 'changed': True}
@@ -150,6 +169,38 @@ class Repo:
     def _is_merge(self, rev):
         return len(self.git('rev-list', '--parents', '-n1', rev).split()) > 2
 
+    def blame(self, doc):
+        """Per source line of the web text: {author, time, summary} of the version that last changed it."""
+        fn = DOCS[doc]
+        with self.lock:
+            head = self.head()
+            if not head:
+                return {'rev': None, 'lines': []}
+            if self._blame_cache.get(doc, (None,))[0] == head:
+                return self._blame_cache[doc][1]
+            out = self.git('blame', '--line-porcelain', 'web', '--', fn)
+        commits, lines, cur = {}, [], None
+        for line in out.split('\n'):
+            if re.match(r'^[0-9a-f]{40} ', line):
+                cur = commits.setdefault(line[:40], {'rev': line[:10]})
+            elif cur is not None and line.startswith('author '):
+                cur['author'] = line[7:]
+            elif cur is not None and line.startswith('author-time '):
+                cur['time'] = int(line[12:])
+            elif cur is not None and line.startswith('summary '):
+                cur['summary'] = line[8:]
+            elif line.startswith('\t') and cur is not None:
+                lines.append(cur)
+        for c in commits.values():      # versions saved before authors were recorded: infer the source
+            c['who'] = author_name(c.get('summary', '').split(':', 1)[0]) if c.get('author') in (None, 'review editor') else c['author']
+            if c.get('summary', '').startswith('laptop sync') or c.get('summary', '').startswith('Merge'):
+                c['who'] = 'laptop'
+            elif c.get('summary', '').startswith('Revert'):
+                c['who'] = 'undo in the web editor'
+        res = {'rev': head, 'lines': [[c['who'], c.get('time'), c.get('summary', '')[:80], c['rev']] for c in lines]}
+        self._blame_cache[doc] = (head, res)
+        return res
+
     # ---- laptop sync
     def state(self):
         with self.lock:
@@ -186,7 +237,7 @@ class Repo:
             for p in (lap, base):
                 if p and p not in parents:
                     parents.append(p)
-            commit = self.git('commit-tree', tree, *sum((['-p', p] for p in parents), []), '-m', msg).strip()
+            commit = self.git('commit-tree', tree, *sum((['-p', p] for p in parents), []), '-m', msg, author='laptop').strip()
             self.git('update-ref', 'refs/heads/laptop', commit)
             if not web:
                 self.git('update-ref', 'refs/heads/web', commit)

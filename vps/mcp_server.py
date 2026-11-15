@@ -32,7 +32,9 @@ The text is a git working copy: every edit is one undoable commit, the PDF recom
 authors merge the edits into their own copy later. A paragraph is usually one long source line.
 Typical flow: search_source or read_source to find the text; replace_text for an exact phrase (preferred for small
 edits) or edit_lines for whole lines; then read the compile result returned by the edit and fix any LaTeX error you
-caused. list_comments shows what reviewers asked for (resolve_comment once addressed). get_changes shows the
+caused. When the user refers to "this", "here", "what I selected / circled / drew", call get_user_focus first: it
+shows their current selection, unsaved drawing and editor caret (with an image). list_comments shows notes and voice
+notes (transcribed); view_comment shows a note's drawing on the page (resolve_comment once addressed). get_changes shows the
 revision so far; render_page shows a typeset page.
 Keep edits minimal and in the authors' wording and style; never reformat or rewrap text you were not asked to change."""
 
@@ -293,24 +295,178 @@ async def get_changes(doc: str, against: str = 'baseline', max_changes: int = 60
     return '\n'.join(out)
 
 
+def note_text(c):
+    """One comment / note as text: where, kind, source lines, quote, text and voice transcript."""
+    kind = 'drawing' if c.get('strokes') else 'selection' if c.get('rect') else (c.get('kind') or 'text')
+    head = (f"#{c['id']}{' (resolved)' if c.get('resolved') else ''} [{c.get('where') or ''}] {kind}"
+            + (f", {c['doc']} page {c['page']}" if c.get('doc') and c.get('page') else '')
+            + (f", source lines {c['src_from']}-{c['src_to']}" if c.get('src_from') else '')
+            + (f", by {c['author']}" if c.get('author') else ''))
+    body = []
+    if c.get('quote'):
+        body.append(f"  quoted: \"{c['quote'][:500]}\"")
+    if c.get('text'):
+        body.append('  text: ' + c['text'])
+    if c.get('audio_id'):
+        tr = c.get('transcript')
+        if tr and tr[:40] not in (c.get('text') or ''):
+            body.append('  voice note (transcribed): ' + tr)
+        elif not tr:
+            body.append(f"  voice note: {c.get('audio_state') or 'pending'} (no transcript yet)")
+    return '\n'.join([head] + body)
+
+
+def page_png(doc, page, width):
+    pdf = os.path.join(DATA, 'live', DOCS[doc][:-4] + '.pdf')
+    with tempfile.TemporaryDirectory() as d:
+        out = os.path.join(d, 'p')
+        subprocess.run(['pdftoppm', '-png', '-singlefile', '-f', str(page), '-l', str(page), '-scale-to', str(width), pdf, out],
+                       check=True, capture_output=True, timeout=60)
+        return open(out + '.png', 'rb').read()
+
+
+def marked_image(doc, page, rect=None, strokes=None, crop=True, width=1400):
+    """The page with a region (dashed box) and / or a drawing (red strokes) drawn on it, cropped around them."""
+    import io
+    from PIL import Image as PImage, ImageDraw
+    im = PImage.open(io.BytesIO(page_png(doc, page, width))).convert('RGB')
+    W, H = im.size
+    dr = ImageDraw.Draw(im)
+    lw = max(3, W // 300)
+    for s in strokes or []:
+        pts = [(x * W, y * H) for x, y in s]
+        if len(pts) > 1:
+            dr.line(pts, fill=(214, 51, 108), width=lw, joint='curve')
+    if rect and not strokes:
+        x0, y0, x1, y1 = rect['x'] * W, rect['y'] * H, (rect['x'] + rect['w']) * W, (rect['y'] + rect['h']) * H
+        dr.rectangle([x0 - 3, y0 - 3, x1 + 3, y1 + 3], outline=(214, 51, 108), width=lw)
+    if crop and (rect or strokes):
+        r = rect or {}
+        if strokes:
+            xs = [x for s in strokes for x, _ in s]; ys = [y for s in strokes for _, y in s]
+            r = {'x': min(xs), 'y': min(ys), 'w': max(xs) - min(xs), 'h': max(ys) - min(ys)}
+        top = max(0, (r['y'] - 0.12) * H); bot = min(H, (r['y'] + r['h'] + 0.12) * H)
+        im = im.crop((0, int(top), W, int(bot)))      # full width: the text around it stays readable
+    buf = io.BytesIO(); im.save(buf, 'PNG', optimize=True)
+    return buf.getvalue()
+
+
+def region_text(doc, page, rect=None, strokes=None, margin=0.01):
+    """The PDF text inside a region of a page (pdftotext on a rectangle in points), or '' if none."""
+    if strokes and not rect:
+        xs = [x for s in strokes for x, _ in s]; ys = [y for s in strokes for _, y in s]
+        rect = {'x': min(xs), 'y': min(ys), 'w': max(xs) - min(xs), 'h': max(ys) - min(ys)}
+    if not rect:
+        return ''
+    pdf = os.path.join(DATA, 'live', DOCS[doc][:-4] + '.pdf')
+    info = subprocess.run(['pdfinfo', '-f', str(page), '-l', str(page), pdf], capture_output=True, timeout=30).stdout.decode()
+    m = re.search(r'Page\s+\d+\s+size:\s+([\d.]+)\s+x\s+([\d.]+)', info) or re.search(r'Page size:\s+([\d.]+)\s+x\s+([\d.]+)', info)
+    if not m:
+        return ''
+    W, H = float(m.group(1)), float(m.group(2))
+    x, y = max(0, rect['x'] - margin), max(0, rect['y'] - margin)
+    w, h = min(1 - x, rect['w'] + 2 * margin), min(1 - y, rect['h'] + 2 * margin)
+    r = subprocess.run(['pdftotext', '-f', str(page), '-l', str(page), '-r', '72', '-x', str(int(x * W)), '-y', str(int(y * H)),
+                        '-W', str(int(w * W) + 1), '-H', str(int(h * H) + 1), '-layout', pdf, '-'], capture_output=True, timeout=30)
+    return re.sub(r'[ \t]+', ' ', r.stdout.decode('utf8', errors='replace')).strip()
+
+
+async def source_excerpt(doc, a, b, limit=4000):
+    _, L = await source(doc)
+    a, b = max(1, a), min(len(L), b)
+    s = '\n'.join(f'{i}\t{L[i - 1]}' for i in range(a, b + 1))
+    return s if len(s) <= limit else s[:limit] + ' …'
+
+
+@mcp.tool()
+async def get_user_focus(include_image: bool = True) -> list:
+    """What the user is pointing at in the review page right now: the text selected in the PDF (with its page,
+    region and the matching LaTeX source lines), a drawing they made but did not save yet, the paragraph open in the
+    source editor (with the caret position and any selected source), and the page in view. Call this when the user
+    says "this", "here", "what I selected", "what I circled" and similar. With include_image, the page region is
+    returned as an image with the selection / drawing marked."""
+    st, f = await call('GET', '/api/focus')
+    if not f:
+        return ['The review page has not reported anything yet (is it open in a browser?).']
+    out = [f"(reported {f.get('age', '?')} s ago; view: {f.get('view')}"
+           + (f"; page in view: {f['doc']} page {f['page']}" if f.get('doc') else '') + ')']
+    img = None
+    sel = f.get('selection') or None
+    if not sel and f.get('last_selection'):
+        sel = f['last_selection']
+        out.append('No text is selected right now; the last selection was:')
+    if sel:
+        out.append(f"Selected in the PDF ({sel.get('doc')} page {sel.get('page')}, {sel.get('view')} view): \"{sel.get('text', '')[:1500]}\"")
+        src = sel.get('source')
+        if src:
+            out.append(f"Matching source, lines {src.get('from_line')}-{src.get('to_line')}: \"{src.get('text', '')[:1500]}\"")
+        if include_image and sel.get('view') == 'edit' and sel.get('rect') and sel.get('doc') in DOCS:
+            img = (sel['doc'], sel['page'], sel['rect'], None)
+    dw = f.get('drawing')
+    if dw and dw.get('doc') in DOCS:
+        out.append(f"Unsaved drawing on {dw['doc']} page {dw['page']} ({len(dw.get('strokes') or [])} stroke(s)) around "
+                   f"x {dw['rect']['x']:.2f}-{dw['rect']['x'] + dw['rect']['w']:.2f}, y {dw['rect']['y']:.2f}-{dw['rect']['y'] + dw['rect']['h']:.2f} of the page.")
+        t = await anyio.to_thread.run_sync(lambda: region_text(dw['doc'], dw['page'], dw.get('rect'), None))
+        if t:
+            out.append('PDF text in the drawn region: ' + t[:2000])
+        if include_image:
+            img = (dw['doc'], dw['page'], dw['rect'], dw.get('strokes'))
+    ed = f.get('editor')
+    if ed and ed.get('doc') in DOCS:
+        out.append(f"Source editor open on {ed['doc']} lines {ed['start_line']}-{ed['end_line']}, caret at line {ed.get('caret_line')}"
+                   + (' (unsaved changes in the editor!)' if ed.get('unsaved_changes') else '') + f": …{ed.get('caret_context', '')}…")
+        if ed.get('selected_source'):
+            out.append(f"Selected in the source editor: \"{ed['selected_source'][:1500]}\"")
+    res = ['\n'.join(out)]
+    if img:
+        try:
+            res.append(Image(data=await anyio.to_thread.run_sync(lambda: marked_image(img[0], img[1], img[2], img[3])), format='png'))
+        except Exception as ex:
+            res[0] += f'\n(image unavailable: {ex})'
+    return res
+
+
 @mcp.tool()
 async def list_comments(include_resolved: bool = False) -> str:
-    """Reviewer comments on the paper: id, where (document / page / figure), the quoted text and the comment."""
+    """Reviewer comments and notes on the paper: id, where (document / page), kind (text, selection, drawing, voice),
+    the source lines it points at, the quoted text, the comment text and the transcript of a voice note. Use
+    view_comment to see a drawing or selection on the page."""
     st, cs = await call('GET', '/api/comments')
-    out = []
-    for c in cs:
-        if c.get('resolved') and not include_resolved:
-            continue
-        out.append(f"#{c['id']}{' (resolved)' if c.get('resolved') else ''} [{c.get('where') or ''}] "
-                   + (f"on \"{c['quote'][:300]}\": " if c.get('quote') else '') + c['text'])
+    out = [note_text(c) for c in cs if include_resolved or not c.get('resolved')]
     return '\n'.join(out) or 'no open comments'
+
+
+@mcp.tool()
+async def view_comment(comment_id: int) -> list:
+    """One note in full: its text and voice transcript, the LaTeX source lines it points at, and an image of the page
+    with the user's drawing or selected region marked."""
+    st, c = await call('GET', f'/api/comments/{comment_id}')
+    if st != 200:
+        raise ToolError(c.get('error', f'HTTP {st}'))
+    parts = [note_text(c)]
+    if c.get('doc') in DOCS and c.get('page') and (c.get('rect') or c.get('strokes')):
+        t = await anyio.to_thread.run_sync(lambda: region_text(c['doc'], c['page'], c.get('rect'), c.get('strokes')))
+        if t:
+            parts.append('PDF text in the marked region (search_source finds it in the source):\n' + t[:3000])
+    if c.get('src_from') and c.get('doc') in DOCS:
+        ex = await source_excerpt(c['doc'], c['src_from'], c['src_to'])
+        if re.sub(r'^\d+\t', '', ex, flags=re.M).strip():
+            parts.append('Source lines under it (synctex):\n' + ex)
+    res = ['\n\n'.join(parts)]
+    if c.get('doc') in DOCS and c.get('page') and (c.get('rect') or c.get('strokes')):
+        try:
+            res.append(Image(data=await anyio.to_thread.run_sync(
+                lambda: marked_image(c['doc'], c['page'], c.get('rect'), c.get('strokes'))), format='png'))
+        except Exception as ex:
+            res[0] += f'\n(image unavailable: {ex})'
+    return res
 
 
 @mcp.tool()
 async def add_comment(text: str, where: str = '', quote: str = '') -> str:
     """Add a comment for the authors (e.g. a question or a suggestion you did not apply). where: a location such as
     'Main text, line 120'; quote: the text it is about."""
-    st, r = await call('POST', '/api/comments', {'text': f'[{WHO}] {text}', 'where': where, 'quote': quote})
+    st, r = await call('POST', '/api/comments', {'text': text, 'where': where, 'quote': quote, 'author': 'AI (MCP)'})
     return f"comment #{r.get('id')} added" if st == 200 else f"failed: {r.get('error')}"
 
 

@@ -83,6 +83,23 @@ the same or adjacent words on both sides are a conflict: nothing is written or p
 `conflicts/<file>`, exit code 2. Before writing a laptop file it keeps a copy in `sync-backups/` and checks that the
 file did not change during the sync. Line endings of the laptop files are kept.
 
+## Visual feedback, voice notes, authorship
+
+- **Point at things:** the page reports what you select in the PDF (text, page, region, matching source lines), an
+  unsaved drawing, and the paragraph and caret in the source editor (`POST /api/focus`, sent again whenever the page
+  loses focus). An AI client reads it with the MCP tool `get_user_focus`, including an image of the marked region.
+- **Draw:** toolbar button or **D** in the Edit view; draw circles or arrows on the PDF, then **Enter** to attach a
+  note. Notes stay on the page as numbered marks; `view_comment` shows them to the AI client as an image, with the PDF
+  text inside the region and the source lines under it.
+- **Voice notes:** the microphone button in the note dialog, or **V**. The recording is uploaded and transcribed on
+  the server by `vps/transcribe.py` (faster-whisper on the CPU; `whisper_model` in `config.json`, default `base`,
+  about 7 s for an 11-s clip on a 4-core VPS; `whisper_prompt` gives it the paper's vocabulary). The transcript goes
+  into the note text for you to check; the recording is kept for playback. Install: `pip install faster-whisper
+  pillow` in the MCP venv.
+- **Who changed what:** set "Your name" in the Edit sidebar; edits are committed with that author (`AI (MCP)` for the
+  MCP endpoint, `laptop` for syncs). `GET /api/blame/<doc>` gives the last author per source line; hovering over a
+  change in the Tracked view (or a card in the Changes tab, or the open paragraph) shows who changed it and when.
+
 ## AI tools (MCP)
 
 `vps/mcp_server.py` publishes the manuscript to AI clients over MCP (streamable HTTP) at `https://<host>/<token>/mcp`.

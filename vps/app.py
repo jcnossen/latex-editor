@@ -30,7 +30,7 @@ Python standard library only. Project settings: config.json next to this file (s
   POST /api/sync/assets          assets were updated (recompile everything)
 Usage: python3 app.py --site /srv/paperreview/site --db /srv/paperreview/data/review.db --port 8801 [--data DIR]
 """
-import argparse, hashlib, json, mimetypes, os, sqlite3, sys, threading, time
+import argparse, hashlib, json, mimetypes, os, queue, sqlite3, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -62,12 +62,81 @@ def on_change(reason):
 REPO.listeners.append(on_change)
 
 
+# comments carry where they point: document, page, a region (rect, normalized 0..1 page coordinates), a drawing
+# (strokes: [[[x, y], ...], ...] in the same coordinates), the source lines under it, and an optional voice note
+CMT_EXTRA = [('kind', 'TEXT'), ('doc', 'TEXT'), ('page', 'INTEGER'), ('rect', 'TEXT'), ('strokes', 'TEXT'),
+             ('src_from', 'INTEGER'), ('src_to', 'INTEGER'), ('audio_id', 'INTEGER'), ('author', 'TEXT')]
+_schema_done = False
+
+
 def db():
+    global _schema_done
     c = sqlite3.connect(A.db, timeout=10)
-    c.execute('CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, status TEXT, text TEXT, updated REAL)')
-    c.execute('CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, location TEXT, quote TEXT, '
-              'text TEXT, created REAL, resolved INTEGER DEFAULT 0)')
+    if not _schema_done:
+        c.execute('CREATE TABLE IF NOT EXISTS decisions (id TEXT PRIMARY KEY, status TEXT, text TEXT, updated REAL)')
+        c.execute('CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, location TEXT, quote TEXT, '
+                  'text TEXT, created REAL, resolved INTEGER DEFAULT 0)')
+        have = {r[1] for r in c.execute('PRAGMA table_info(comments)')}
+        for col, typ in CMT_EXTRA:
+            if col not in have:
+                c.execute(f'ALTER TABLE comments ADD COLUMN {col} {typ}')
+        c.execute('CREATE TABLE IF NOT EXISTS audio (id INTEGER PRIMARY KEY AUTOINCREMENT, created REAL, file TEXT, mime TEXT, '
+                  'state TEXT, transcript TEXT, language TEXT, duration REAL, error TEXT)')
+        c.commit()
+        _schema_done = True
     return c
+
+
+def comment_rows(where='', args=()):
+    with LOCK, db() as c:
+        rows = c.execute('SELECT c.id, c.location, c.quote, c.text, c.created, c.resolved, c.kind, c.doc, c.page, c.rect, '
+                         'c.strokes, c.src_from, c.src_to, c.audio_id, a.state, a.transcript, a.duration, c.author '
+                         'FROM comments c LEFT JOIN audio a ON a.id = c.audio_id ' + where + ' ORDER BY c.id', args).fetchall()
+    out = []
+    for r in rows:
+        out.append({'id': r[0], 'where': r[1], 'quote': r[2], 'text': r[3], 'created': r[4], 'resolved': bool(r[5]),
+                    'kind': r[6] or 'text', 'doc': r[7], 'page': r[8], 'rect': json.loads(r[9]) if r[9] else None,
+                    'strokes': json.loads(r[10]) if r[10] else None, 'src_from': r[11], 'src_to': r[12],
+                    'audio_id': r[13], 'audio_state': r[14], 'transcript': r[15], 'audio_duration': r[16], 'author': r[17]})
+    return out
+
+
+# ---- voice notes: stored under data/audio, transcribed one at a time by vps/transcribe.py (faster-whisper)
+AUDIO_DIR = os.path.join(P.data, 'audio')
+os.makedirs(AUDIO_DIR, exist_ok=True)
+AUDIO_Q = queue.Queue()
+VENV_PY = CFG.get('mcp_python') or (CFG['server_root'] + '/mcpvenv/bin/python')
+
+
+def audio_worker():
+    while True:
+        aid = AUDIO_Q.get()
+        with LOCK, db() as c:
+            r = c.execute('SELECT file FROM audio WHERE id = ?', (aid,)).fetchone()
+            c.execute("UPDATE audio SET state = 'transcribing' WHERE id = ?", (aid,))
+        try:
+            p = subprocess.run([VENV_PY, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'transcribe.py'),
+                                os.path.join(AUDIO_DIR, r[0]), '--model', CFG.get('whisper_model', 'base'),
+                                '--models-dir', os.path.join(P.data, 'models')] +
+                               (['--prompt', CFG['whisper_prompt']] if CFG.get('whisper_prompt') else []),
+                               capture_output=True, timeout=900, env=P.env())
+            res = json.loads(p.stdout.decode('utf8') or '{}') if p.returncode == 0 else None
+            with LOCK, db() as c:
+                if res:
+                    c.execute("UPDATE audio SET state = 'done', transcript = ?, language = ?, duration = ? WHERE id = ?",
+                              (res.get('text', ''), res.get('language'), res.get('duration'), aid))
+                else:
+                    c.execute("UPDATE audio SET state = 'error', error = ? WHERE id = ?",
+                              (p.stderr.decode(errors='replace')[-1500:], aid))
+        except Exception as e:
+            with LOCK, db() as c:
+                c.execute("UPDATE audio SET state = 'error', error = ? WHERE id = ?", (f'{type(e).__name__}: {e}', aid))
+
+
+threading.Thread(target=audio_worker, daemon=True, name='audio').start()
+
+# ---- what the user is looking at / has selected right now (reported by the page; read by the MCP endpoint)
+FOCUS = {}
 
 
 def safe_join(root, rel):
@@ -131,9 +200,27 @@ class H(BaseHTTPRequestHandler):
                 rows = c.execute('SELECT id, status, text, updated FROM decisions').fetchall()
             return self.send(200, {r[0]: {'status': r[1], 'text': r[2], 'updated': r[3]} for r in rows})
         if path == '/api/comments':
+            return self.send(200, comment_rows())
+        if path.startswith('/api/comments/'):
+            rows = comment_rows('WHERE c.id = ?', (int(path.rsplit('/', 1)[1]),))
+            return self.send(200, rows[0]) if rows else self.send(404, {'error': 'no such comment'})
+        if path == '/api/focus':
+            return self.send(200, {**FOCUS, 'age': round(time.time() - FOCUS['time'], 1)} if FOCUS else {})
+        if path.startswith('/api/audio/'):
+            name = path.rsplit('/', 1)[1]
+            aid = int(name.split('.')[0])
             with LOCK, db() as c:
-                rows = c.execute('SELECT id, location, quote, text, created, resolved FROM comments ORDER BY id').fetchall()
-            return self.send(200, [{'id': r[0], 'where': r[1], 'quote': r[2], 'text': r[3], 'created': r[4], 'resolved': bool(r[5])} for r in rows])
+                r = c.execute('SELECT file, mime, state, transcript, language, duration, error FROM audio WHERE id = ?', (aid,)).fetchone()
+            if not r:
+                return self.send(404, {'error': 'no such audio'})
+            if name.endswith('.json'):
+                return self.send(200, {'id': aid, 'state': r[2], 'transcript': r[3], 'language': r[4], 'duration': r[5],
+                                       'error': (r[6] or '')[-300:]})
+            full = safe_join(AUDIO_DIR, r[0])
+            if not full:
+                return self.send(404, {'error': 'audio file missing'})
+            with open(full, 'rb') as f:
+                return self.send(200, f.read(), r[1] or 'application/octet-stream')
         if path == '/api/editor':
             rev = REPO.head()
             return self.send(200, {'ready': bool(rev), 'rev': rev, 'docs': {d: {**c.status, 'ver': c.ver} for d, c in COMP.items()},
@@ -154,6 +241,8 @@ class H(BaseHTTPRequestHandler):
         if path.startswith('/api/boxes/'):
             c = COMP[path.rsplit('/', 1)[1]]
             return self.send(200, c.synctex_view(int(q['from']), int(q['to'])))
+        if path.startswith('/api/blame/'):
+            return self.send(200, REPO.blame(path.rsplit('/', 1)[1]))
         if path == '/api/history':
             return self.send(200, REPO.log(int(q.get('n', 60))))
         if path.startswith('/api/history/'):
@@ -213,6 +302,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = unquote(urlparse(self.path).path)
+        if path == '/api/audio':          # a raw recording (audio/webm, audio/ogg, audio/mp4, ...), up to 25 MB
+            return self.post_audio()
         try:
             b = self.body()
         except Exception:
@@ -228,21 +319,54 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             return self.send(500, {'error': f'{type(e).__name__}: {e}'})
 
+    def post_audio(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        mime = (self.headers.get('Content-Type') or '').split(';')[0].strip().lower()
+        if not 0 < n <= 25_000_000 or not mime.startswith('audio/'):
+            return self.send(400, {'error': 'send one audio recording (audio/*, up to 25 MB)'})
+        data = self.rfile.read(n)
+        ext = {'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav',
+               'audio/x-wav': 'wav'}.get(mime, 'bin')
+        with LOCK, db() as c:
+            aid = c.execute("INSERT INTO audio (created, mime, state) VALUES (?, ?, 'queued')", (time.time(), mime)).lastrowid
+            fn = f'{aid}.{ext}'
+            c.execute('UPDATE audio SET file = ? WHERE id = ?', (fn, aid))
+        with open(os.path.join(AUDIO_DIR, fn), 'wb') as f:
+            f.write(data)
+        AUDIO_Q.put(aid)
+        return self.send(200, {'id': aid, 'state': 'queued'})
+
     def post(self, path, b):
         if path == '/api/comments':
             text = str(b.get('text', '')).strip()
-            if not text:
+            strokes, rect = b.get('strokes'), b.get('rect')
+            audio_id = int(b['audio_id']) if b.get('audio_id') else None
+            if not text and not strokes and not audio_id:
                 return self.send(400, {'error': 'empty comment'})
+            num = lambda v: int(v) if v not in (None, '') else None   # noqa: E731
             with LOCK, db() as c:
-                cur = c.execute('INSERT INTO comments (location, quote, text, created) VALUES (?, ?, ?, ?)',
-                                (str(b.get('where', ''))[:500], str(b.get('quote', ''))[:4000], text[:8000], time.time()))
+                cur = c.execute('INSERT INTO comments (location, quote, text, created, kind, doc, page, rect, strokes, src_from, '
+                                'src_to, audio_id, author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                                (str(b.get('where', ''))[:500], str(b.get('quote', ''))[:4000], text[:8000], time.time(),
+                                 str(b.get('kind') or ('drawing' if strokes else 'text'))[:20],
+                                 b.get('doc') if b.get('doc') in DOCS else None, num(b.get('page')),
+                                 json.dumps(rect)[:2000] if rect else None, json.dumps(strokes)[:200_000] if strokes else None,
+                                 num(b.get('src_from')), num(b.get('src_to')), audio_id, str(b.get('author') or '')[:60] or None))
             return self.send(200, {'ok': True, 'id': cur.lastrowid})
+        if path == '/api/focus':
+            # keep only plain, size-limited fields
+            f = {k: b.get(k) for k in ('view', 'doc', 'page', 'selection', 'last_selection', 'drawing', 'editor') if k in b}
+            s = json.dumps(f)
+            if len(s) > 60_000:
+                return self.send(400, {'error': 'focus too large'})
+            FOCUS.clear(); FOCUS.update(json.loads(s)); FOCUS['time'] = time.time()
+            return self.send(200, {'ok': True})
         if path.startswith('/api/edit/'):
             doc = path.rsplit('/', 1)[1]
             if doc not in DOCS:
                 raise KeyError(doc)
             r = REPO.edit(doc, str(b.get('rev') or ''), int(b['start']), str(b['old']), str(b['new']),
-                          who=str(b.get('who') or 'web')[:20])
+                          who=str(b.get('who') or 'web')[:60])
             return self.send(200, {**r, 'ver': COMP[doc].ver})
         if path.startswith('/api/revert/'):
             return self.send(200, REPO.revert(path.rsplit('/', 1)[1]))

@@ -171,6 +171,28 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .livedoc .doc-title .bst { font: 500 11.5px var(--ui); color: var(--fg3); }
 #liveView .page { cursor: text; }
 #liveView .textLayer { inset: auto; left: 0; top: 0; transform-origin: 0 0; }
+.hunk .by { margin-left: auto; color: var(--fg3); font-size: 11.5px; }
+/* feedback: drawings and notes on the PDF, voice notes */
+.fbar { position: fixed; left: 340px; bottom: 16px; z-index: 25; display: flex; align-items: center; gap: 6px; padding: 5px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 4px 16px rgba(0, 0, 0, .18); }
+.fbar button { height: 30px; padding: 0 12px; border-radius: 15px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 12.5px var(--ui); cursor: pointer; }
+.fbar button:hover { border-color: var(--accent); }
+.fbar button[aria-pressed="true"] { background: #d6336c; border-color: #d6336c; color: #fff; }
+.fbar #fb-note { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.fb-hint { color: var(--fg3); font-size: 12px; padding: 0 6px; }
+body.drawing #liveView .page { cursor: crosshair; touch-action: none; }
+body.drawing #liveView .textLayer { pointer-events: none; }
+.ink { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; overflow: visible; }
+.ink polyline { fill: none; stroke: #e8590c; stroke-width: 3px; stroke-linecap: round; stroke-linejoin: round; }
+.ink.saved polyline { stroke: #d6336c; opacity: .8; }
+.note-rect { position: absolute; z-index: 2; pointer-events: none; outline: 2px dashed #d6336c; outline-offset: 1px; border-radius: 3px; background: rgba(214, 51, 108, .07); }
+.note-badge { position: absolute; z-index: 7; transform: translate(-40%, -70%); font: 600 11px var(--ui); background: #d6336c; color: #fff; border: 0; border-radius: 10px; padding: 1px 7px; cursor: pointer; }
+.rec { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.rec .mic { height: 30px; padding: 0 12px; border-radius: 15px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 12.5px var(--ui); cursor: pointer; }
+.rec .mic[aria-pressed="true"] { background: #d6336c; border-color: #d6336c; color: #fff; }
+.rec .rs { color: var(--fg2); font-size: 12px; } .rec audio { height: 32px; max-width: 100%; }
+.cmt audio { display: block; height: 32px; margin-top: 6px; } .cmt .tr { color: var(--fg2); font-size: 12.5px; margin-top: 4px; } .cmt .tr::before { content: '🎤 '; }
+@media (max-width: 820px) { .fbar { left: 16px; } }
 /* source <-> PDF sync: the source box sits on a backdrop that can mark text (a selection made in the PDF) */
 .ed-wrap { position: relative; flex: 1 1 auto; min-height: 160px; }
 .editor .ed-wrap textarea, .ed-back { position: absolute; inset: 0; margin: 0; width: 100%; height: 100%; box-sizing: border-box; font: 13.5px/1.6 ui-monospace, 'Cascadia Mono', Consolas, monospace;
@@ -228,6 +250,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
     <nav class="list" id="cmtlist" aria-label="Comments" hidden></nav>
     <nav class="list edside" id="edlist" aria-label="Editor" hidden>
       <h3>Build</h3><div id="ed-builds"></div>
+      <h3>Your name</h3><input class="edfind" id="ed-name" type="text" placeholder="Shown with your edits and notes (optional)" autocomplete="name" maxlength="40">
       <h3>Find in the source</h3><input class="edfind" id="ed-find" type="search" placeholder="Words from the paragraph…" autocomplete="off"><div class="hits" id="ed-hits"></div>
       <h3>Saved edits</h3><div class="hist" id="ed-hist"></div>
     </nav>
@@ -244,6 +267,13 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   </aside>
 </div>
 <button class="cbtn" id="cbtn" hidden>Comment <kbd>C</kbd></button>
+<div class="fbar" id="fbar" hidden role="toolbar" aria-label="Feedback">
+  <button type="button" id="fb-draw" aria-pressed="false" title="Draw on the PDF (D)">✏️ Draw</button>
+  <button type="button" id="fb-voice" title="Record a voice note about what you are looking at (V)">🎤 Voice note</button>
+  <button type="button" id="fb-note" hidden title="Write or record a note about your drawing (Enter)">💬 Note on drawing</button>
+  <button type="button" id="fb-clear" hidden title="Remove the unsaved drawing (Esc)">Clear</button>
+  <span class="fb-hint" id="fb-hint"></span>
+</div>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -316,6 +346,7 @@ async function renderDoc(doc, main) {
     painter.observe(el);
   }
   placeBars(doc);
+  annotateChanges(doc.key);
 }
 let paintChain = Promise.resolve();
 const painter = new IntersectionObserver((entries) => {
@@ -359,6 +390,7 @@ function placeBars(doc) {
       b.className = `bar ${c.type}${approx ? ' approx' : ''}`;
       b.style.top = (100 * top / P.vp.height) + '%'; b.style.height = (100 * h / P.vp.height) + '%';
       b.title = (c.type === 'a' ? 'Added: ' : 'Deleted: ') + c.text.slice(0, 120);
+      c._bar = b;
       b.onclick = () => go(state.flat.findIndex((f) => f.c === c));
       P.el.append(b);
     }
@@ -397,9 +429,31 @@ function placeCbtn() {
   const x = Math.min(window.scrollX + last.right + 6, window.scrollX + document.documentElement.clientWidth - b.offsetWidth - 16);
   b.style.left = Math.max(window.scrollX + 8, x) + 'px'; b.style.top = (window.scrollY + last.bottom + 6) + 'px';
 }
+// where a range of selected PDF text is: {doc, page, rect (0..1 of the page), view}
+function pageOf(el) {
+  const pg = el?.closest?.('.page'); if (!pg) return null;
+  if (pg.dataset.doc) return { el: pg, doc: pg.dataset.doc, page: +pg.dataset.n, view: 'edit' };
+  const m = /^p-(.+)-(\d+)$/.exec(pg.id || ''); return m ? { el: pg, doc: m[1], page: +m[2], view: 'tracked' } : null;
+}
+function selCtx(r) {
+  const p = pageOf((r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement)); if (!p) return null;
+  const pr = p.el.getBoundingClientRect(); let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const q of r.getClientRects()) {
+    if (!q.width || !q.height) continue;
+    x0 = Math.min(x0, (q.left - pr.left) / pr.width); y0 = Math.min(y0, (q.top - pr.top) / pr.height);
+    x1 = Math.max(x1, (q.right - pr.left) / pr.width); y1 = Math.max(y1, (q.bottom - pr.top) / pr.height);
+  }
+  const rect = x1 > x0 ? { x: +Math.max(0, x0).toFixed(4), y: +Math.max(0, y0).toFixed(4), w: +(Math.min(1, x1) - Math.max(0, x0)).toFixed(4), h: +(Math.min(1, y1) - Math.max(0, y0)).toFixed(4) } : null;
+  return { doc: p.doc, page: p.page, rect, view: p.view };
+}
 async function comment() {
   const r = selRange(); if (!r) return;
-  if (VPS) { const pg = r.startContainer.parentElement?.closest('.page'); openCommentDialog(pg ? pg.getAttribute('aria-label') : 'paper', r.toString()); return; }
+  if (VPS) {
+    const pg = r.startContainer.parentElement?.closest('.page'), c = selCtx(r);
+    // page coordinates only for the live PDF (the tracked view's pages are numbered differently)
+    const ctx = c && c.view === 'edit' ? { doc: c.doc, page: c.page, rect: c.rect, kind: 'selection' } : { kind: 'selection' };
+    openCommentDialog(pg ? pg.getAttribute('aria-label') : 'paper', r.toString(), ctx); return;
+  }
   if (!comments) { toast('Commenting from the page is not available here. Use the comment tool of claude.ai on the selected text.'); return; }
   try {
     const res = await comments.openComposer({ range: r });
@@ -499,6 +553,8 @@ function setView(v) {
   $('main').scrollTop = state.scroll?.[v] ?? 0;
   if (v === 'comments') loadComments();
   if (v === 'paper') ensureTracked();
+  if (v !== 'edit' && DRAW.on) setDraw(false);
+  updFbar(); focusSoon();
 }
 $('v-edit').onclick = () => setView('edit');
 $('v-paper').onclick = () => setView('paper');
@@ -518,20 +574,77 @@ async function api(path, method = 'GET', body) {
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
-function openCommentDialog(where, quote) {
+// A note: text and/or a voice recording (transcribed on the server), attached to a place in the paper: ctx = {doc,
+// page, rect (0..1 page coordinates), strokes (a drawing), kind}. The source lines under the place are looked up
+// (synctex) when it is saved, so an AI client can find the text the note is about.
+async function srcLinesForRect(doc, page, rect) {
+  const P = ED.pages?.[doc]?.[page]; if (!P || !rect) return null;
+  const pts = [[rect.x + 0.02 * rect.w, rect.y + 0.1 * rect.h], [rect.x + rect.w / 2, rect.y + rect.h / 2], [rect.x + 0.98 * rect.w, rect.y + 0.9 * rect.h]];
+  const lines = [];
+  for (const [x, y] of pts) {
+    try { const r = await api(`synctex/${doc}?page=${page}&x=${(x * P.vp0.width).toFixed(1)}&y=${(y * P.vp0.height).toFixed(1)}`); if (r.line) lines.push(r.line); } catch (e) { /* none */ }
+  }
+  return lines.length ? [Math.min(...lines), Math.max(...lines)] : null;
+}
+function openCommentDialog(where, quote, ctx = {}, opts = {}) {
   const d = document.createElement('div'); d.className = 'cdlg';
-  d.innerHTML = `<div role="dialog" aria-label="Comment"><b>Comment</b><div class="w" style="color:var(--fg3);font-size:12px">${esc(where)}</div>` +
+  const what = ctx.strokes ? 'Note on your drawing' : ctx.rect ? 'Note on the selection' : 'Comment';
+  d.innerHTML = `<div role="dialog" aria-label="${what}"><b>${what}</b><div class="w" style="color:var(--fg3);font-size:12px">${esc(where)}</div>` +
     (quote ? `<div class="q">${esc(quote.slice(0, 600))}</div>` : '') +
-    `<textarea id="cdlg-t" placeholder="What should change?"></textarea><div class="row"><button type="button" class="c">Cancel</button><button type="button" class="p">Save comment</button></div></div>`;
+    `<textarea id="cdlg-t" placeholder="What should change? Type, dictate, or record a voice note."></textarea>` +
+    `<div class="rec"><button type="button" class="mic" aria-pressed="false">🎤 Record voice note</button><span class="rs"></span><audio controls hidden></audio></div>` +
+    `<div class="row"><button type="button" class="c">Cancel</button><button type="button" class="p">Save note</button></div></div>`;
   document.body.append(d);
-  const t = d.querySelector('textarea'); t.focus();
-  const close = () => d.remove();
+  const t = d.querySelector('textarea'), mic = d.querySelector('.mic'), rs = d.querySelector('.rs'), au = d.querySelector('audio');
+  let rec = null, audioId = null, transcribing = false, closed = false;
+  const close = () => { closed = true; if (rec && rec.state !== 'inactive') rec.stop(); d.remove(); opts.onClose?.(); };
   d.querySelector('.c').onclick = close;
-  d.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  d.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') d.querySelector('.p').click(); });
+  mic.onclick = async () => {
+    if (rec && rec.state === 'recording') { rec.stop(); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e) { rs.textContent = 'No microphone access (' + (e.name || e) + ').'; return; }
+    const type = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
+    rec = new MediaRecorder(stream, type ? { mimeType: type } : {});
+    const chunks = [], t0 = Date.now();
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    const tick = setInterval(() => { rs.textContent = `Recording… ${Math.round((Date.now() - t0) / 1000)} s (click again to stop)`; }, 250);
+    rec.onstop = async () => {
+      clearInterval(tick); stream.getTracks().forEach((tr) => tr.stop()); mic.setAttribute('aria-pressed', 'false'); mic.textContent = '🎤 Record again';
+      if (closed) return;
+      const blob = new Blob(chunks, { type: (rec.mimeType || 'audio/webm').split(';')[0] });
+      au.src = URL.createObjectURL(blob); au.hidden = false;
+      await uploadVoice(blob);
+    };
+    rec.start(); mic.setAttribute('aria-pressed', 'true'); mic.textContent = '■ Stop';
+  };
+  async function uploadVoice(blob) {
+    rs.textContent = 'Uploading…'; transcribing = true;
+    try {
+      const r = await fetch(API + 'audio', { method: 'POST', headers: { 'Content-Type': blob.type || 'audio/webm' }, body: blob });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+      audioId = j.id; rs.textContent = 'Transcribing on the server…';
+      for (let i = 0; i < 400 && !closed; i++) {
+        await sleep(1500);
+        const m = await api(`audio/${audioId}.json`);
+        if (m.state === 'done') { t.value = (t.value.trim() ? t.value.trim() + '\n' : '') + (m.transcript || ''); rs.textContent = `Transcribed (${m.duration ?? '?'} s). Check the text, then save.`; break; }
+        if (m.state === 'error') { rs.textContent = 'Transcription failed; the recording is kept with the note.'; break; }
+      }
+    } catch (e) { rs.textContent = 'Upload failed: ' + e.message; audioId = null; }
+    transcribing = false;
+  }
+  t.focus();
+  if (opts.record) mic.click();
   d.querySelector('.p').onclick = async () => {
-    if (!t.value.trim()) { t.focus(); return; }
-    try { await api('comments', 'POST', { where, quote, text: t.value }); close(); toast('Comment saved.'); $('cbtn').hidden = true; }
-    catch (e) { toast('Could not save the comment (' + e.message + '). Your text is still in the box.'); }
+    if (!t.value.trim() && !audioId && !ctx.strokes) { t.focus(); return; }
+    if (rec && rec.state === 'recording') { toast('Stop the recording first.'); return; }
+    if (transcribing && !confirm('The voice note is still being transcribed. Save now (the transcript is added later)?')) return;
+    const body = { where, quote, text: t.value, audio_id: audioId, author: myName() || 'web', ...ctx };
+    if (ctx.doc && ctx.page && ctx.rect && !ctx.src_from) {
+      const src = await srcLinesForRect(ctx.doc, ctx.page, ctx.rect); if (src) [body.src_from, body.src_to] = src;
+    }
+    try { await api('comments', 'POST', body); close(); toast('Note saved.'); $('cbtn').hidden = true; opts.onSaved?.(); loadNotes(); }
+    catch (e) { toast('Could not save the note (' + e.message + '). Your text is still in the box.'); }
   };
 }
 async function loadComments() {
@@ -542,9 +655,20 @@ async function loadComments() {
   $('cmtlist').innerHTML = `<div class="doc-h"><span>${list.filter((c) => !c.resolved).length} open, ${list.filter((c) => c.resolved).length} resolved</span></div>`;
   for (const c of list) {
     const el = document.createElement('article'); el.className = 'cmt' + (c.resolved ? ' res' : '');
-    el.innerHTML = `<div class="w">${esc(c.where || '')} · ${new Date(c.created * 1000).toLocaleString()}</div>` + (c.quote ? `<div class="q">${esc(c.quote)}</div>` : '') +
-      `<div>${esc(c.text)}</div><button type="button">${c.resolved ? 'Reopen' : 'Mark resolved'}</button>`;
-    el.querySelector('button').onclick = async () => { await api('comments/' + c.id, 'PUT', { resolved: !c.resolved }); loadComments(); };
+    const kind = c.strokes ? ' · drawing' : c.rect ? ' · selection' : '';
+    const tr = c.transcript && !(c.text || '').includes(c.transcript.slice(0, 40)) ? `<div class="tr">${esc(c.transcript)}</div>` : '';
+    el.innerHTML = `<div class="w">#${c.id}${c.author ? ' · ' + esc(c.author) : ''} · ${esc(c.where || '')}${kind}${c.src_from ? ` · source lines ${c.src_from}–${c.src_to}` : ''} · ${new Date(c.created * 1000).toLocaleString()}</div>` +
+      (c.quote ? `<div class="q">${esc(c.quote)}</div>` : '') + `<div style="white-space:pre-wrap">${esc(c.text || '')}</div>` + tr +
+      (c.audio_id ? (c.audio_state && c.audio_state !== 'done' ? `<div class="tr">voice note: ${esc(c.audio_state)}</div>` : '') + `<audio controls preload="none" src="${API}audio/${c.audio_id}"></audio>` : '') +
+      `<button type="button" class="rs">${c.resolved ? 'Reopen' : 'Mark resolved'}</button>` +
+      (c.doc && c.page && ED.ready ? ` <button type="button" class="go">Show in the paper</button>` : '');
+    el.querySelector('.rs').onclick = async () => { await api('comments/' + c.id, 'PUT', { resolved: !c.resolved }); loadComments(); loadNotes(); };
+    el.querySelector('.go')?.addEventListener('click', () => {
+      setView('edit');
+      const P = ED.pages?.[c.doc]?.[c.page]; if (!P) return;
+      const r = c.rect || (c.strokes ? bboxOf(c.strokes) : { y: 0 });
+      $('main').scrollTop += P.el.getBoundingClientRect().top - $('main').getBoundingClientRect().top + r.y * P.el.clientHeight - 120;
+    });
     $('cmtView').append(el);
   }
 }
@@ -581,7 +705,7 @@ function renderHunks() {
     if (hfilter === 'open' && st !== 'open' || hfilter === 'done' && st === 'open') return;
     const card = document.createElement('article'); card.className = 'hunk'; card.id = 'h-' + i;
     const shown = st === 'edit' ? decisions[h.id].text : h.new;
-    card.innerHTML = `<header><span class="where">${esc(h.title)}</span><span class="ln">line ${h.line}</span><span class="st ${st}">${STLABEL[st]}</span></header>` +
+    card.innerHTML = `<header><span class="where">${esc(h.title)}</span><span class="ln">line ${h.line}</span><span class="st ${st}">${STLABEL[st]}</span><span class="by" data-doc="${h.doc}" data-line="${h.line}"></span></header>` +
       (h.before ? `<p class="ctx">… ${esc(h.before.slice(-140))}</p>` : '') +
       `<pre class="src">${srcDiff(h.old, shown)}</pre>` +
       `<div class="acts"><button type="button" class="a">Accept</button><button type="button" class="r">Reject</button><button type="button" class="e">Edit</button>` +
@@ -621,6 +745,7 @@ function renderHunks() {
     b.onclick = () => hgo(i);
     L.append(b);
   });
+  annotateHunks();
 }
 function hgo(i) {
   const el = $('h-' + i); if (!el) return;
@@ -656,10 +781,54 @@ async function edLoadSrc(doc) {
   ED.src[doc] = { rev: s.rev, lines: s.text.split('\n') };
   return ED.src[doc];
 }
+// ---- who changed what: the user's (optional) name goes with their edits and notes; the server's per-line blame
+// tells, on hover, who last changed the paragraph behind a change
+const myName = () => { try { return (localStorage.getItem('pr-name') || '').trim(); } catch (e) { return ''; } };
+const BLAME = {};
+async function getBlame(doc) {
+  const rev = ED.status?.[doc]?.rev || ED.src?.[doc]?.rev || '';
+  if (BLAME[doc] && (BLAME[doc].rev === rev || Date.now() - BLAME[doc].at < 4000)) return BLAME[doc];
+  try { const b = await api('blame/' + doc); BLAME[doc] = { ...b, at: Date.now() }; } catch (e) { return BLAME[doc] || null; }
+  return BLAME[doc];
+}
+const whoText = (w) => w ? `last changed by ${w[0]}, ${w[1] ? new Date(w[1] * 1000).toLocaleString() : '?'}` : '';
+let lineNorm = {};
+async function lineForChange(doc, c) {
+  // the source line of a tracked change: its text (an addition) or the text after it (a deletion), normalized
+  if (!ED.src[doc]) { try { await edLoadSrc(doc); } catch (e) { return 0; } }
+  const L = ED.src[doc].lines;
+  if (!lineNorm[doc] || lineNorm[doc].rev !== ED.src[doc].rev) lineNorm[doc] = { rev: ED.src[doc].rev, n: L.map((l) => srcIndex(l).s) };
+  const N = lineNorm[doc].n;
+  for (const key of [norm(c.type === 'a' ? c.text : (c.after || c.text)), norm(c.text)]) {
+    for (const len of [40, 18]) {
+      const k = key.slice(0, len); if (k.length < 6) continue;
+      const i = N.findIndex((s) => s.includes(k)); if (i >= 0) return i + 1;
+    }
+  }
+  return 0;
+}
+async function annotateChanges(doc) {
+  if (!ED.ready) return;
+  const bl = await getBlame(doc); if (!bl?.lines) return;
+  for (const f of state.flat.filter((x) => x.doc === doc)) {
+    const c = f.c, ln = await lineForChange(doc, c); if (!ln) continue;
+    const t = (c.type === 'a' ? 'Added: ' : 'Deleted: ') + c.text.slice(0, 120) + `\n${whoText(bl.lines[ln - 1])} (source line ${ln})`;
+    if (c._bar) c._bar.title = t;
+    const li = $('chg-' + state.flat.indexOf(f)); if (li) li.title = t;
+  }
+}
+async function annotateHunks() {
+  if (!ED.ready) return;
+  for (const el of document.querySelectorAll('.hunk .by')) {
+    const bl = await getBlame(el.dataset.doc), w = bl?.lines?.[+el.dataset.line - 1];
+    if (w) { el.textContent = w[0] + ' · ' + ago(w[1]); el.title = whoText(w) + `\n${w[2]}`; }
+  }
+}
+
 // replace a block of source lines on the server (used by the editor and by Reject / Edit in the Changes list)
 async function edApply(doc, start, old, nw, who = 'web') {
   const rev = ED.src[doc]?.rev || '';
-  const r = await apiRaw('edit/' + doc, 'POST', { rev, start, old, new: nw, who });
+  const r = await apiRaw('edit/' + doc, 'POST', { rev, start, old, new: nw, who: myName() ? `${who}:${myName()}` : who });
   if (r.ok) { ED.t0 = performance.now(); ED.waitDoc = doc; await edLoadSrc(doc).catch(() => {}); edHistory(); return { ok: true, ...r.data }; }
   return { ok: false, status: r.status, error: r.status === 409 ? 'This text was changed in the meantime (another save or a laptop sync).' : (r.data.error || 'HTTP ' + r.status) };
 }
@@ -732,6 +901,7 @@ async function edRender(doc) {
       }
       for (const n of near) if (pages[n]?.el._paint) await pages[n].el._paint();
       for (const P of Object.values(pages)) { tlFit.observe(P.el); if (P.el._paint) painter.observe(P.el); }
+      afterLiveRender(doc, pages);
       if (ED.block?.doc === doc) edHighlight().then(syncSoon);
       if (ED.t0 && ED.waitDoc === doc) {
         edMsg(`Updated in ${((performance.now() - ED.t0) / 1000).toFixed(1)} s (compile ${s.pass_times?.[0] ?? '?'} s)` +
@@ -802,6 +972,7 @@ async function edOpen(doc, line, hint, opts = {}) {
   ED.block = { doc, start, end, old, rev: ED.src[doc].rev };
   $('ed-where').textContent = LIVE.find((d) => d.key === doc).title;
   $('ed-lines').textContent = start === end ? `line ${start}` : `lines ${start}–${end}`;
+  getBlame(doc).then((bl) => { const w = bl?.lines?.[start - 1]; if (w && ED.block?.start === start) $('ed-lines').textContent += ` · last changed by ${w[0]}, ${ago(w[1])}`; });
   const ta = $('ed-text'); ta.value = old;
   let draft = null; try { draft = JSON.parse(localStorage.getItem(draftKey(ED.block)) || 'null'); } catch (e) { /* no storage */ }
   if (draft && draft.old === old && draft.text !== old) { ta.value = draft.text; edMsg('Restored your unsaved text for this paragraph.'); } else edMsg('');
@@ -813,12 +984,14 @@ async function edOpen(doc, line, hint, opts = {}) {
   else { ta.setSelectionRange(0, 0); ta.scrollTop = 0; }
   await edHighlight(opts.scroll !== false);
   if (opts.focus !== false) syncToPdf();
+  focusSoon();
 }
 function edClose(force) {
   if (!force && edDirty() && !confirm('Discard the unsaved changes to this paragraph?')) return;
   if (ED.block) try { localStorage.removeItem(draftKey(ED.block)); } catch (e) { /* no storage */ }
   ED.block = null; $('editor').hidden = true; document.querySelector('.app').classList.remove('editing');
   document.querySelectorAll('.ehl, .sync-caret, .sync-sel').forEach((e) => e.remove());
+  focusSoon();
 }
 async function edSave() {
   const B = ED.block; if (!B) return true;
@@ -1019,16 +1192,183 @@ async function pdfSelToSource() {
   const s0 = locate(si.s, before, Q.slice(0, 32)); if (s0.p < 0 || s0.score < 6) return;
   const s1 = locate(si.s, Q.slice(-32), after, s0.p);
   const end = s1.p > s0.p ? s1.p : Math.min(si.s.length, s0.p + Q.length);
-  srcMark([si.at[s0.p], si.at[end - 1] + 1]);
+  const ms = si.at[s0.p], me = si.at[end - 1] + 1, v = $('ed-text').value;
+  srcMark([ms, me]);
+  // remembered for the focus report: the source lines and text of what is selected in the PDF
+  ED.lastMark = { doc: ED.block.doc, from_line: ED.block.start + v.slice(0, ms).split('\n').length - 1,
+                  to_line: ED.block.start + v.slice(0, me).split('\n').length - 1, text: v.slice(ms, me).slice(0, 3000) };
+  focusSoon();
   async function inBlock() {    // is the selected text in the open paragraph?
     const si = srcIndex($('ed-text').value); return locate(si.s, before, Q.slice(0, 32)).score >= Math.min(24, Q.length + 6);
   }
 }
-$('liveView').addEventListener('mouseup', () => setTimeout(pdfSelToSource, 0));
+$('liveView').addEventListener('mouseup', () => { if (!DRAW.on) setTimeout(pdfSelToSource, 0); });
 for (const ev of ['keyup', 'mouseup', 'select', 'focus']) $('ed-text').addEventListener(ev, syncSoon);
 $('ed-text').addEventListener('input', () => { srcMark(null); syncSoon(); });
 $('ed-text').addEventListener('scroll', () => { $('ed-back').scrollTop = $('ed-text').scrollTop; });
 $('ed-text').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('ed-text')) document.querySelectorAll('.sync-caret').forEach((e) => e.remove()); }, 150));
+
+// ---- visual feedback: draw on the live PDF, notes (text / voice) pinned to a place, and the "focus" report that
+// tells an AI client (MCP get_user_focus) what is selected, drawn or open in the editor right now
+const SVGNS = 'http://www.w3.org/2000/svg';
+const DRAW = { on: false, pend: null };
+let NOTES = [];
+const bboxOf = (strokes) => {
+  let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+  for (const s of strokes) for (const [x, y] of s) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  return { x: +x0.toFixed(4), y: +y0.toFixed(4), w: +Math.max(0.002, x1 - x0).toFixed(4), h: +Math.max(0.002, y1 - y0).toFixed(4) };
+};
+function inkSvg(strokes, cls) {
+  const svg = document.createElementNS(SVGNS, 'svg'); svg.setAttribute('class', 'ink' + (cls ? ' ' + cls : ''));
+  svg.setAttribute('viewBox', '0 0 1 1'); svg.setAttribute('preserveAspectRatio', 'none');
+  for (const s of strokes || []) {
+    const pl = document.createElementNS(SVGNS, 'polyline'); pl.setAttribute('vector-effect', 'non-scaling-stroke');
+    pl.setAttribute('points', s.map((q) => q.join(',')).join(' ')); svg.append(pl);
+  }
+  return svg;
+}
+function updFbar() {
+  const live = state.view === 'edit' && ED.ready;
+  $('fbar').hidden = !live;
+  $('fb-draw').setAttribute('aria-pressed', String(DRAW.on));
+  const has = !!DRAW.pend?.strokes.length;
+  $('fb-note').hidden = !has; $('fb-clear').hidden = !has;
+  $('fb-hint').textContent = DRAW.on ? (has ? 'Draw more, or add a note (Enter)' : 'Draw on the page (circle, arrow, …)') : '';
+}
+function setDraw(on) { DRAW.on = on; document.body.classList.toggle('drawing', on); if (on) getSelection()?.removeAllRanges(); updFbar(); }
+function clearPending() { DRAW.pend?.svg.remove(); DRAW.pend = null; updFbar(); focusSoon(); }
+$('liveView').addEventListener('pointerdown', (e) => {
+  if (!DRAW.on || e.button !== 0) return;
+  const p = pageOf(e.target); if (!p || p.view !== 'edit') return;
+  e.preventDefault(); e.stopPropagation();
+  if (DRAW.pend && (DRAW.pend.doc !== p.doc || DRAW.pend.page !== p.page)) { toast('Add a note to the drawing on the other page first (Enter), or clear it (Esc).'); return; }
+  if (!DRAW.pend) { DRAW.pend = { doc: p.doc, page: p.page, strokes: [], svg: inkSvg([], '') }; p.el.append(DRAW.pend.svg); }
+  const pend = DRAW.pend, pl = document.createElementNS(SVGNS, 'polyline'); pl.setAttribute('vector-effect', 'non-scaling-stroke'); pend.svg.append(pl);
+  const pr = p.el.getBoundingClientRect(), pts = [];
+  const add = (ev) => { pts.push([+((ev.clientX - pr.left) / pr.width).toFixed(4), +((ev.clientY - pr.top) / pr.height).toFixed(4)]); pl.setAttribute('points', pts.map((q) => q.join(',')).join(' ')); };
+  add(e);
+  const up = () => {
+    window.removeEventListener('pointermove', add); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+    if (pts.length > 1) pend.strokes.push(pts); else pl.remove();
+    updFbar(); focusSoon();
+  };
+  window.addEventListener('pointermove', add); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+}, true);
+function noteOnDrawing() {
+  const p = DRAW.pend; if (!p?.strokes.length) return;
+  const title = LIVE.find((d) => d.key === p.doc)?.title || p.doc;
+  openCommentDialog(`${title}, page ${p.page} (drawing)`, '', { doc: p.doc, page: p.page, rect: bboxOf(p.strokes), strokes: p.strokes, kind: 'drawing' },
+    { onSaved: () => { clearPending(); } });
+}
+function voiceNote() {
+  const s = getSelection(), r = s && !s.isCollapsed && s.rangeCount ? s.getRangeAt(0) : null, c = r ? selCtx(r) : null;
+  if (DRAW.pend?.strokes.length) { noteOnDrawing(); return; }
+  const cp = c || currentPage();
+  const title = cp ? (LIVE.find((d) => d.key === cp.doc)?.title || cp.doc) + `, page ${cp.page}` : 'paper';
+  const ctx = c && c.view === 'edit' ? { doc: c.doc, page: c.page, rect: c.rect, kind: 'selection' }
+    : cp && cp.view === 'edit' ? { doc: cp.doc, page: cp.page, kind: 'voice' } : { kind: 'voice' };
+  openCommentDialog(title, r ? r.toString() : '', ctx, { record: true });
+}
+$('fb-draw').onclick = () => setDraw(!DRAW.on);
+$('fb-note').onclick = noteOnDrawing;
+$('fb-clear').onclick = clearPending;
+$('fb-voice').onclick = voiceNote;
+document.addEventListener('keydown', (e) => {
+  if (state.view !== 'edit' || e.target.closest?.('input, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey || document.querySelector('.cdlg')) return;
+  if (e.key === 'd') { e.preventDefault(); setDraw(!DRAW.on); }
+  else if (e.key === 'v') { e.preventDefault(); voiceNote(); }
+  else if (e.key === 'Enter' && DRAW.pend?.strokes.length) { e.preventDefault(); noteOnDrawing(); }
+  else if (e.key === 'Escape' && (DRAW.pend || DRAW.on)) { e.preventDefault(); if (DRAW.pend) clearPending(); else setDraw(false); }
+});
+// saved notes as marks on the live PDF (drawing or region + a numbered badge)
+async function loadNotes() {
+  if (!ED.ready) return;
+  try { NOTES = await api('comments'); } catch (e) { return; }
+  renderNotes();
+  if (state.view === 'comments') loadComments();
+}
+function renderNotes(onlyDoc) {
+  document.querySelectorAll(onlyDoc ? `#live-${onlyDoc} .note-mark` : '.note-mark').forEach((e) => e.remove());
+  for (const c of NOTES) {
+    if (c.resolved || !c.doc || !c.page || (!c.rect && !c.strokes) || (onlyDoc && c.doc !== onlyDoc)) continue;
+    const P = ED.pages?.[c.doc]?.[c.page]; if (!P) continue;
+    const r = c.rect || bboxOf(c.strokes);
+    if (c.strokes) { const s = inkSvg(c.strokes, 'saved'); s.classList.add('note-mark'); P.el.append(s); }
+    else { const d = document.createElement('div'); d.className = 'note-rect note-mark'; Object.assign(d.style, { left: r.x * 100 + '%', top: r.y * 100 + '%', width: r.w * 100 + '%', height: r.h * 100 + '%' }); P.el.append(d); }
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'note-badge note-mark'; b.textContent = '#' + c.id;
+    b.title = (c.text || c.transcript || '').slice(0, 200);
+    Object.assign(b.style, { left: (r.x + r.w) * 100 + '%', top: r.y * 100 + '%' });
+    b.onclick = (e) => { e.stopPropagation(); showNote(c); };
+    P.el.append(b);
+  }
+}
+function afterLiveRender(doc, pages) {
+  if (DRAW.pend?.doc === doc && pages[DRAW.pend.page]) pages[DRAW.pend.page].el.append(DRAW.pend.svg);
+  renderNotes(doc);
+}
+function showNote(c) {
+  const d = document.createElement('div'); d.className = 'cdlg';
+  d.innerHTML = `<div role="dialog" aria-label="Note #${c.id}"><b>Note #${c.id}</b><div class="w" style="color:var(--fg3);font-size:12px"></div>` +
+    (c.quote ? `<div class="q"></div>` : '') + `<div class="nt" style="white-space:pre-wrap;margin:6px 0"></div>` +
+    (c.audio_id ? `<audio controls src="${API}audio/${c.audio_id}" style="width:100%;height:32px"></audio>` : '') +
+    `<div class="row">${c.src_from ? '<button type="button" class="s">Edit the source</button>' : ''}<button type="button" class="r">${c.resolved ? 'Reopen' : 'Mark resolved'}</button><button type="button" class="c p">Close</button></div></div>`;
+  d.querySelector('.w').textContent = `${c.where || ''} · ${new Date(c.created * 1000).toLocaleString()}` + (c.src_from ? ` · source lines ${c.src_from}–${c.src_to}` : '');
+  if (c.quote) d.querySelector('.q').textContent = c.quote;
+  d.querySelector('.nt').textContent = c.text || (c.transcript ? '' : '(no text)');
+  if (c.transcript && !(c.text || '').includes(c.transcript.slice(0, 40))) d.querySelector('.nt').textContent += (c.text ? '\n' : '') + '🎤 ' + c.transcript;
+  document.body.append(d);
+  const close = () => d.remove();
+  d.querySelector('.c').onclick = close; d.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  d.querySelector('.r').onclick = async () => { await api('comments/' + c.id, 'PUT', { resolved: !c.resolved }); close(); loadNotes(); };
+  d.querySelector('.s')?.addEventListener('click', () => { close(); edOpen(c.doc, c.src_from); });
+  d.querySelector('.c').focus();
+}
+setInterval(() => { if (state.view === 'edit' && !document.hidden) loadNotes(); }, 60000);
+
+// what the user is looking at, sent to the server (debounced, and right away when the page loses focus, e.g. when
+// the user switches to their AI client to ask about it)
+const FOC = { last_selection: null };
+function currentPage() {
+  const m = $('main').getBoundingClientRect(), cy = m.top + m.height * 0.4;
+  const view = state.view === 'paper' ? $('paperView') : $('liveView');
+  for (const el of view.querySelectorAll('.page')) { const r = el.getBoundingClientRect(); if (r.top <= cy && r.bottom >= cy) return pageOf(el); }
+  return null;
+}
+let focusT = null;
+function focusSoon() { clearTimeout(focusT); focusT = setTimeout(reportFocus, 600); }
+function reportFocus() {
+  clearTimeout(focusT);
+  if (!ED.ready) return;
+  const f = { view: state.view };
+  const cp = (state.view === 'edit' || state.view === 'paper') ? currentPage() : null;
+  if (cp) { f.doc = cp.doc; f.page = cp.page; f.view = cp.view === 'tracked' ? 'tracked' : 'edit'; }
+  const s = getSelection();
+  if (s && !s.isCollapsed && s.rangeCount && s.toString().trim()) {
+    const c = selCtx(s.getRangeAt(0));
+    if (c) {
+      f.selection = { ...c, text: s.toString().slice(0, 3000) };
+      if (c.view === 'edit' && ED.lastMark && ED.lastMark.doc === c.doc) f.selection.source = ED.lastMark;
+      FOC.last_selection = { ...f.selection, time: Date.now() / 1000 };
+    }
+  }
+  if (FOC.last_selection) f.last_selection = FOC.last_selection;
+  if (DRAW.pend?.strokes.length) f.drawing = { doc: DRAW.pend.doc, page: DRAW.pend.page, rect: bboxOf(DRAW.pend.strokes), strokes: DRAW.pend.strokes };
+  if (ED.block && !$('editor').hidden) {
+    const ta = $('ed-text'), v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+    f.editor = { doc: ED.block.doc, start_line: ED.block.start, end_line: ED.block.end, caret_line: ED.block.start + v.slice(0, a).split('\n').length - 1,
+      selected_source: b > a ? v.slice(a, b).slice(0, 3000) : '', caret_context: v.slice(Math.max(0, a - 80), a) + '‸' + v.slice(a, a + 80), unsaved_changes: edDirty() };
+  }
+  fetch(API + 'focus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f), keepalive: true }).catch(() => {});
+}
+document.addEventListener('selectionchange', focusSoon);
+$('main').addEventListener('scroll', () => { clearTimeout(focusT); focusT = setTimeout(reportFocus, 1500); }, { passive: true });
+for (const ev of ['keyup', 'mouseup', 'select']) $('ed-text').addEventListener(ev, focusSoon);
+window.addEventListener('blur', () => reportFocus());
+document.addEventListener('visibilitychange', () => { if (document.hidden) reportFocus(); });
+
+// the "Your name" field (Edit sidebar)
+$('ed-name').value = myName();
+$('ed-name').addEventListener('change', () => { try { localStorage.setItem('pr-name', $('ed-name').value.trim().slice(0, 40)); } catch (e) { /* no storage */ } toast($('ed-name').value.trim() ? 'Your edits and notes now carry this name.' : 'Name cleared.'); });
 
 // ---- draggable divider between the PDF and the editor (width remembered per browser)
 (() => {
@@ -1091,7 +1431,7 @@ function bestMatch(text, hint) {
 }
 const caretFor = (text, hint) => bestMatch(text, hint).at;
 $('liveView').addEventListener('click', async (e) => {
-  if (e.target.closest('button, a') || e.detail > 1) return;
+  if (DRAW.on || e.target.closest('button, a') || e.detail > 1) return;
   const sel = getSelection(); if (sel && !sel.isCollapsed && sel.toString().trim()) return;
   const el = e.target.closest('.page'); if (!el || !el._P) return;
   const P = el._P, r = el.getBoundingClientRect();
@@ -1222,6 +1562,7 @@ async function loadServerReview() {
     LIVE.forEach((d) => liveHolder(d.key));
     setView(['paper', 'figures', 'changes', 'comments'].includes(hv) ? hv : 'edit');
     for (const d of LIVE) edWatch(d.key);
+    loadNotes();
     edHistory();
   } else {
     if (['figures', 'changes', 'comments'].includes(hv)) setView(hv); else setView('paper');

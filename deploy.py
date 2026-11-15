@@ -14,7 +14,7 @@ from prconfig import CFG  # noqa: E402
 
 FILES = {'app.py': 'vps/app.py', 'editor.py': 'vps/editor.py', 'diffdata.py': 'vps/diffdata.py', 'hunks.py': 'hunks.py',
          'prconfig.py': 'prconfig.py', 'mark.py': 'remote/mark.py', 'figures.py': 'remote/figures.py',
-         'mcp_server.py': 'vps/mcp_server.py'}
+         'mcp_server.py': 'vps/mcp_server.py', 'transcribe.py': 'vps/transcribe.py'}
 
 
 def main():
