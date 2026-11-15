@@ -141,7 +141,13 @@ h1 { font: 600 20px/1.2 var(--head); margin: 0; text-wrap: balance; }
 .cmt button { height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--fg2); font: 500 12px var(--ui); cursor: pointer; margin-top: 6px; }
 
 /* live editor (VPS mode): the current text as a fast-compiled PDF; click a paragraph to edit its LaTeX source */
-.app.editing { grid-template-columns: 300px minmax(0, 1fr) minmax(380px, 42%); }
+.app.editing { grid-template-columns: 300px minmax(0, 1fr) var(--edw, minmax(380px, 42%)); }
+.editor { position: relative; }
+/* the divider between the PDF and the editor: drag to resize, double-click to reset */
+.ed-split { position: absolute; left: -5px; top: 0; bottom: 0; width: 9px; cursor: col-resize; z-index: 6; touch-action: none; }
+.ed-split::after { content: ''; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: transparent; transition: background .15s; }
+.ed-split:hover::after, .ed-split.drag::after { background: var(--accent); width: 3px; left: 3px; }
+body.resizing, body.resizing * { cursor: col-resize !important; user-select: none !important; }
 .editor { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; padding: 12px 14px;
   padding-right: max(14px, env(safe-area-inset-right, 0px)); gap: 8px; }
 .editor header { display: flex; align-items: center; gap: 8px; }
@@ -196,6 +202,7 @@ h1 { font: 600 20px/1.2 var(--head); margin: 0; text-wrap: balance; }
 
 @media (max-width: 820px) {
   .app.editing { display: block; }
+  .ed-split { display: none; }
   .editor { position: fixed; left: 0; right: 0; bottom: 0; height: 56vh; z-index: 35; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgba(0,0,0,.18); }
   body { overflow: auto; } .app { display: block; height: auto; }
   .side { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -228,6 +235,7 @@ h1 { font: 600 20px/1.2 var(--head); margin: 0; text-wrap: balance; }
   </aside>
   <main class="main" id="main"><div id="liveView" hidden></div><div id="paperView"><div class="loading" id="loading">Rendering the paper…</div></div><div class="figs" id="figView" hidden></div><div class="hunks" id="chgView" hidden></div><div class="cmts" id="cmtView" hidden></div></main>
   <aside class="editor" id="editor" hidden aria-label="Paragraph editor">
+    <div class="ed-split" id="ed-split" role="separator" aria-orientation="vertical" aria-label="Resize the editor (double-click to reset)" tabindex="0"></div>
     <header><b id="ed-where"></b><span class="ln" id="ed-lines"></span><button type="button" class="x" id="ed-close" title="Close (Esc)" aria-label="Close the editor">×</button></header>
     <div class="ed-wrap"><div class="ed-back" id="ed-back" aria-hidden="true"></div><textarea id="ed-text" spellcheck="true" aria-label="LaTeX source of the paragraph"></textarea></div>
     <div class="ed-acts"><button type="button" class="p" id="ed-save">Save &amp; update<kbd>Ctrl+Enter</kbd></button><button type="button" id="ed-discard">Discard</button><span class="sp"></span>
@@ -1021,6 +1029,42 @@ for (const ev of ['keyup', 'mouseup', 'select', 'focus']) $('ed-text').addEventL
 $('ed-text').addEventListener('input', () => { srcMark(null); syncSoon(); });
 $('ed-text').addEventListener('scroll', () => { $('ed-back').scrollTop = $('ed-text').scrollTop; });
 $('ed-text').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('ed-text')) document.querySelectorAll('.sync-caret').forEach((e) => e.remove()); }, 150));
+
+// ---- draggable divider between the PDF and the editor (width remembered per browser)
+(() => {
+  const sp = $('ed-split'), app = document.querySelector('.app');
+  const setW = (w) => {
+    const W = app.clientWidth, side = document.querySelector('.side').offsetWidth;
+    w = Math.round(Math.max(300, Math.min(W - side - 320, w)));
+    app.style.setProperty('--edw', w + 'px'); return w;
+  };
+  try { const w = +localStorage.getItem('pr-edw'); if (w) setW(w); } catch (e) { /* no storage */ }
+  let drag = null;
+  // the drag is followed on the window (works when the pointer leaves the thin divider, and with any input source)
+  const move = (e) => { if (drag) drag.last = setW(drag.w + drag.x - e.clientX); };
+  const end = () => {
+    if (!drag) return;
+    sp.classList.remove('drag'); document.body.classList.remove('resizing');
+    try { if (drag.last) localStorage.setItem('pr-edw', drag.last); } catch (e) { /* no storage */ }
+    drag = null;
+    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end);
+  };
+  sp.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    try { sp.setPointerCapture(e.pointerId); } catch (er) { /* not capturable: the window listeners still follow it */ }
+    sp.classList.add('drag'); document.body.classList.add('resizing');
+    drag = { x: e.clientX, w: $('editor').offsetWidth };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+  });
+  sp.addEventListener('dblclick', () => { app.style.removeProperty('--edw'); try { localStorage.removeItem('pr-edw'); } catch (e) { /* no storage */ } });
+  sp.addEventListener('keydown', (e) => {      // keyboard: arrows resize by 40 px
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const w = setW($('editor').offsetWidth + (e.key === 'ArrowLeft' ? 40 : -40));
+    try { localStorage.setItem('pr-edw', w); } catch (er) { /* no storage */ }
+  });
+})();
 
 // the word under the click, with some context, to put the cursor on it in the source
 function wordsAt(x, y) {

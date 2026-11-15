@@ -1,0 +1,19 @@
+[Unit]
+Description=LaTeX review: MCP endpoint (AI tools read / edit the manuscript through the review app)
+After=network.target paperreview.service
+
+[Service]
+User=www-data
+Group=www-data
+Environment=HOME=/srv/paperreview/data/home
+# python3 -m venv /srv/paperreview/mcpvenv && /srv/paperreview/mcpvenv/bin/pip install "mcp[cli]"   (MCP SDK 2.x)
+ExecStart=/srv/paperreview/mcpvenv/bin/python -u /srv/paperreview/app/mcp_server.py
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/paperreview/data/home
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

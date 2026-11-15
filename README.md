@@ -83,6 +83,25 @@ the same or adjacent words on both sides are a conflict: nothing is written or p
 `conflicts/<file>`, exit code 2. Before writing a laptop file it keeps a copy in `sync-backups/` and checks that the
 file did not change during the sync. Line endings of the laptop files are kept.
 
+## AI tools (MCP)
+
+`vps/mcp_server.py` publishes the manuscript to AI clients over MCP (streamable HTTP) at `https://<host>/<token>/mcp`.
+It goes through the app's own API, so an AI edit is handled exactly like a browser edit: one undoable commit
+(`mcp: ...` in the history), a recompile, conflict checks, and later the 3-way merge into the laptop copy.
+
+Tools: `list_documents`, `read_source`, `search_source`, `replace_text` (exact phrase; preferred for small edits),
+`edit_lines`, `compile_status` (LaTeX errors with line numbers), `get_changes` (word diff against the baseline, the
+last laptop sync, or any version), `list_comments` / `add_comment` / `resolve_comment`, `history` / `show_edit` /
+`undo_edit`, `page_of_lines`, `render_page` (a PDF page as an image).
+
+Connect:
+- Claude Code: `claude mcp add --transport http paper https://<host>/<token>/mcp`
+- Claude Desktop / claude.ai: Settings > Connectors > Add custom connector, with the same URL.
+
+Setup on the server: create the venv and the unit from `deploy/paperreview-mcp.service.example` (MCP Python SDK 2.x),
+add the `/mcp` location from `deploy/nginx-site.conf.example`, then `python deploy.py` (which also restarts the
+`-mcp` unit). Port: `mcp_port` in `config.json` (default 8803). Whoever has the URL can edit, as with the web page.
+
 ## Server data
 
 Everything the app writes is under `<server_root>/data`: `repo/` (git: branch `web` = browser edits, one commit per
