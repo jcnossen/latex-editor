@@ -165,6 +165,17 @@ h1 { font: 600 20px/1.2 var(--head); margin: 0; text-wrap: balance; }
 .livedoc .doc-title .bst { font: 500 11.5px var(--ui); color: var(--fg3); }
 #liveView .page { cursor: text; }
 #liveView .textLayer { inset: auto; left: 0; top: 0; transform-origin: 0 0; }
+/* source <-> PDF sync: the source box sits on a backdrop that can mark text (a selection made in the PDF) */
+.ed-wrap { position: relative; flex: 1 1 auto; min-height: 160px; }
+.editor .ed-wrap textarea, .ed-back { position: absolute; inset: 0; margin: 0; width: 100%; height: 100%; box-sizing: border-box; font: 13.5px/1.6 ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; overflow-y: scroll; tab-size: 4; }
+.editor .ed-wrap textarea { background: transparent; z-index: 1; min-height: 0; }
+.ed-back { background: var(--bg); color: transparent; pointer-events: none; }
+.ed-back mark { color: transparent; background: rgba(255, 196, 0, .45); border-radius: 2px; }
+.sync-caret { position: absolute; z-index: 4; width: 2px; margin-left: -1px; background: #e8590c; pointer-events: none; animation: blink 1.06s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sync-caret { animation: none; } }
+.sync-sel { position: absolute; z-index: 1; pointer-events: none; background: rgba(255, 196, 0, .42); border-radius: 2px; }
 .ehl { position: absolute; z-index: 1; pointer-events: none; border-radius: 3px; background: rgba(37, 87, 199, .10); outline: 2px solid rgba(37, 87, 199, .55); outline-offset: 2px; }
 .edside { padding: 4px 8px; }
 .edside h3 { font: 600 11.5px var(--ui); text-transform: uppercase; letter-spacing: .06em; color: var(--fg2); margin: 14px 0 6px; }
@@ -218,7 +229,7 @@ h1 { font: 600 20px/1.2 var(--head); margin: 0; text-wrap: balance; }
   <main class="main" id="main"><div id="liveView" hidden></div><div id="paperView"><div class="loading" id="loading">Rendering the paper…</div></div><div class="figs" id="figView" hidden></div><div class="hunks" id="chgView" hidden></div><div class="cmts" id="cmtView" hidden></div></main>
   <aside class="editor" id="editor" hidden aria-label="Paragraph editor">
     <header><b id="ed-where"></b><span class="ln" id="ed-lines"></span><button type="button" class="x" id="ed-close" title="Close (Esc)" aria-label="Close the editor">×</button></header>
-    <textarea id="ed-text" spellcheck="true" aria-label="LaTeX source of the paragraph"></textarea>
+    <div class="ed-wrap"><div class="ed-back" id="ed-back" aria-hidden="true"></div><textarea id="ed-text" spellcheck="true" aria-label="LaTeX source of the paragraph"></textarea></div>
     <div class="ed-acts"><button type="button" class="p" id="ed-save">Save &amp; update<kbd>Ctrl+Enter</kbd></button><button type="button" id="ed-discard">Discard</button><span class="sp"></span>
       <button type="button" id="ed-prev" title="Previous paragraph (Alt+↑)">↑</button><button type="button" id="ed-next" title="Next paragraph (Alt+↓)">↓</button></div>
     <div class="ed-msg" id="ed-msg" aria-live="polite"></div>
@@ -696,7 +707,7 @@ async function edRender(doc) {
           cv.width = Math.round(vp.width * dpr); cv.height = Math.round(vp.height * dpr);
           await page.render({ canvasContext: cv.getContext('2d'), viewport: page.getViewport({ scale: scale * dpr }) }).promise;
           el.querySelector('canvas')?.remove(); el.insertBefore(cv, tl);
-          const tc = await page.getTextContent();
+          const tc = P.tc ??= await page.getTextContent();
           await pdfjsLib.renderTextLayer({ textContentSource: tc, container: tl, viewport: vp, textDivs: [] }).promise;
           tl.style.transform = `scale(${el.clientWidth / vp.width})`;
         };
@@ -713,7 +724,7 @@ async function edRender(doc) {
       }
       for (const n of near) if (pages[n]?.el._paint) await pages[n].el._paint();
       for (const P of Object.values(pages)) { tlFit.observe(P.el); if (P.el._paint) painter.observe(P.el); }
-      if (ED.block?.doc === doc) edHighlight();
+      if (ED.block?.doc === doc) edHighlight().then(syncSoon);
       if (ED.t0 && ED.waitDoc === doc) {
         edMsg(`Updated in ${((performance.now() - ED.t0) / 1000).toFixed(1)} s (compile ${s.pass_times?.[0] ?? '?'} s)` +
           (s.state === 'running' ? ', cross-references follow.' : '.') + edErrText(s), s.errors?.length ? 'err' : 'ok');
@@ -769,7 +780,7 @@ async function edWatch(doc) {
 function edMsg(t, cls = '') { const m = $('ed-msg'); m.className = 'ed-msg ' + cls; m.textContent = t; }
 const draftKey = (B) => `pr-draft:${B.doc}:${B.start}`;
 function edDirty() { return ED.block && $('ed-text').value !== ED.block.old; }
-async function edOpen(doc, line, hint) {
+async function edOpen(doc, line, hint, opts = {}) {
   if (edDirty() && !(await edSave())) return;
   try { await edLoadSrc(doc); } catch (e) { toast('Could not load the source.'); return; }
   let L = ED.src[doc].lines, { start, end } = blockAt(doc, line);
@@ -787,17 +798,19 @@ async function edOpen(doc, line, hint) {
   let draft = null; try { draft = JSON.parse(localStorage.getItem(draftKey(ED.block)) || 'null'); } catch (e) { /* no storage */ }
   if (draft && draft.old === old && draft.text !== old) { ta.value = draft.text; edMsg('Restored your unsaved text for this paragraph.'); } else edMsg('');
   $('editor').hidden = false; document.querySelector('.app').classList.add('editing');
-  ta.focus();
+  srcMark(null);
+  if (opts.focus !== false) ta.focus();
   const at = caretFor(ta.value, hint);
   if (at >= 0) { ta.setSelectionRange(at, at + (hint.word.length)); const before = ta.value.slice(0, at).split('\n').length; ta.scrollTop = Math.max(0, (before - 3) * 21); }
   else { ta.setSelectionRange(0, 0); ta.scrollTop = 0; }
-  edHighlight(true);
+  await edHighlight(opts.scroll !== false);
+  if (opts.focus !== false) syncToPdf();
 }
 function edClose(force) {
   if (!force && edDirty() && !confirm('Discard the unsaved changes to this paragraph?')) return;
   if (ED.block) try { localStorage.removeItem(draftKey(ED.block)); } catch (e) { /* no storage */ }
   ED.block = null; $('editor').hidden = true; document.querySelector('.app').classList.remove('editing');
-  document.querySelectorAll('.ehl').forEach((e) => e.remove());
+  document.querySelectorAll('.ehl, .sync-caret, .sync-sel').forEach((e) => e.remove());
 }
 async function edSave() {
   const B = ED.block; if (!B) return true;
@@ -845,6 +858,7 @@ async function edHighlight(scroll) {
   let boxes = [];
   try { boxes = await api(`boxes/${B.doc}?from=${B.start}&to=${B.end}`); } catch (e) { return; }
   if (ED.block !== B) return;
+  ED.boxes = boxes;
   let first = null;
   for (const b of boxes) {
     const P = ED.pages[B.doc][b.page]; if (!P) continue;
@@ -855,6 +869,159 @@ async function edHighlight(scroll) {
   }
   if (scroll && first) { const r = first.getBoundingClientRect(), m = $('main').getBoundingClientRect(); if (r.top < m.top || r.top > m.bottom - 60) $('main').scrollTop += r.top - m.top - 80; }
 }
+// ---- Overleaf-style sync between the source box and the PDF, at character level inside the open paragraph.
+// Both sides are reduced to lowercase letters and digits (LaTeX commands, citation / ref arguments, comments and
+// superscripts such as citation numbers left out) and aligned by the text around the caret, tolerating a few
+// mismatches (math, accents, hyphenation).
+const SKIPARG = /^\\(?:cite[a-zA-Z]*|ref|autoref|eqref|pageref|label|includegraphics|url|href|input|include|begin|end|bibliographystyle|bibliography|usepackage|documentclass)\*?(?:\[[^\]]*\])*\{[^}]*\}/;
+function srcIndex(s) {
+  const ch = [], at = [];
+  for (let i = 0; i < s.length;) {
+    const c = s[i];
+    if (c === '%' && s[i - 1] !== '\\') { while (i < s.length && s[i] !== '\n') i++; continue; }
+    if (c === '\\') {
+      const m = SKIPARG.exec(s.slice(i, i + 400)); if (m) { i += m[0].length; continue; }
+      const w = /^\\(?:[a-zA-Z]+|.)/.exec(s.slice(i, i + 60)); i += w ? w[0].length : 1; continue;
+    }
+    for (const x of c.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '')) { ch.push(x); at.push(i); }
+    i++;
+  }
+  return { s: ch.join(''), at };
+}
+async function pdfIndex(P) {
+  if (P._idx) return P._idx;
+  const tc = P.tc ??= await P.page.getTextContent();
+  const hs = tc.items.filter((t) => t.str && t.str.trim()).map((t) => t.height).sort((a, b) => a - b);
+  const med = hs[hs.length >> 1] || 10;
+  const ch = [], it = [], off = [];
+  tc.items.forEach((t, k) => {
+    if (!t.str || t.height < 0.78 * med) return;             // superscripts: citation numbers, footnote marks
+    for (let j = 0; j < t.str.length; j++) for (const x of t.str[j].normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '')) { ch.push(x); it.push(k); off.push(j); }
+  });
+  return (P._idx = { s: ch.join(''), it, off, items: tc.items });
+}
+function matchBack(S, p, B) {
+  let i = p - 1, j = B.length - 1, n = 0, skips = 0;
+  while (i >= 0 && j >= 0) {
+    if (S[i] === B[j]) { n++; i--; j--; continue; }
+    if (++skips > 3) break;
+    if (S[i - 1] === B[j]) i--; else if (S[i] === B[j - 1]) j--; else { i--; j--; }
+  }
+  return n;
+}
+function matchFwd(S, p, A) {
+  let i = p, j = 0, n = 0, skips = 0;
+  while (i < S.length && j < A.length) {
+    if (S[i] === A[j]) { n++; i++; j++; continue; }
+    if (++skips > 3) break;
+    if (S[i + 1] === A[j]) i++; else if (S[i] === A[j + 1]) j++; else { i++; j++; }
+  }
+  return n;
+}
+function locate(S, before, after, from = 0) {
+  let best = -1, bs = 0;
+  for (let p = from; p <= S.length; p++) {
+    if (S[p] !== after[0] && S[p - 1] !== before[before.length - 1]) continue;
+    const sc = matchBack(S, p, before) + matchFwd(S, p, after);
+    if (sc > bs) { bs = sc; best = p; }
+  }
+  return { p: best, score: bs };
+}
+function charBox(P, idx, p, end) {
+  // viewport-at-scale-1 box of the character at normalized index p (its right edge when end is set)
+  const q = Math.min(p, idx.s.length - 1), t = idx.items[idx.it[q]], j = idx.off[q] + (end || p >= idx.s.length ? 1 : 0);
+  const x = t.transform[4] + t.width * j / Math.max(1, t.str.length);
+  const [vx, vy] = P.vp0.convertToViewportPoint(x, t.transform[5]);
+  const [, vt] = P.vp0.convertToViewportPoint(x, t.transform[5] + t.height);
+  return { x: vx, top: vt, bottom: vy + t.height * 0.22, k: idx.it[q] };
+}
+const pct = (v, w) => (100 * v / w) + '%';
+let syncT = null, syncSeq = 0;
+function syncSoon() { clearTimeout(syncT); syncT = setTimeout(syncToPdf, 90); }
+async function syncToPdf() {
+  // the source caret (or selection) shown in the PDF
+  const B = ED.block, ta = $('ed-text'), seq = ++syncSeq;
+  document.querySelectorAll('.sync-caret, .sync-sel').forEach((e) => e.remove());
+  if (!B || !ED.pages[B.doc] || !ED.boxes?.length || document.activeElement !== ta) return;
+  const si = srcIndex(ta.value);
+  const nAt = (c) => { let lo = 0, hi = si.at.length; while (lo < hi) { const m = (lo + hi) >> 1; if (si.at[m] < c) lo = m + 1; else hi = m; } return lo; };
+  const a = nAt(ta.selectionStart), b = nAt(ta.selectionEnd);
+  const before = si.s.slice(Math.max(0, a - 32), a), after = si.s.slice(a, a + 32);
+  let best = null;
+  for (const pg of [...new Set(ED.boxes.map((x) => x.page))]) {
+    const P = ED.pages[B.doc][pg]; if (!P) continue;
+    const idx = await pdfIndex(P), r = locate(idx.s, before, after);
+    if (r.p >= 0 && (!best || r.score > best.score)) best = { ...r, P, idx };
+  }
+  if (seq !== syncSeq || !best || best.score < 8) return;
+  const { P, idx } = best;
+  if (b > a) {          // a selection: highlight from its start to its end, line by line
+    const sel = si.s.slice(a, b), tail = si.s.slice(b, b + 32);
+    const e = locate(idx.s, sel.slice(-32), tail, best.p);
+    const pEnd = e.p > best.p ? e.p : Math.min(idx.s.length, best.p + sel.length);
+    const lines = [];
+    for (let p = best.p; p < pEnd; p++) {
+      const c0 = charBox(P, idx, p), c1 = charBox(P, idx, p, true), L = lines[lines.length - 1];
+      if (L && Math.abs(L.top - c0.top) < 3 && c0.x >= L.x0 - 2) { L.x1 = Math.max(L.x1, c1.x); L.bottom = Math.max(L.bottom, c0.bottom); }
+      else lines.push({ x0: c0.x, x1: c1.x, top: c0.top, bottom: c0.bottom });
+    }
+    for (const L of lines) {
+      const d = document.createElement('div'); d.className = 'sync-sel';
+      d.style.left = pct(L.x0, P.vp0.width); d.style.width = pct(Math.max(2, L.x1 - L.x0), P.vp0.width);
+      d.style.top = pct(L.top, P.vp0.height); d.style.height = pct(L.bottom - L.top, P.vp0.height);
+      P.el.append(d);
+    }
+  } else {
+    const c = charBox(P, idx, best.p);
+    const d = document.createElement('div'); d.className = 'sync-caret';
+    d.style.left = pct(c.x, P.vp0.width); d.style.top = pct(c.top, P.vp0.height); d.style.height = pct(c.bottom - c.top, P.vp0.height);
+    P.el.append(d);
+    const r = d.getBoundingClientRect(), m = $('main').getBoundingClientRect();
+    if (r.top < m.top + 20 || r.bottom > m.bottom - 20) $('main').scrollTop += r.top - m.top - m.height / 3;
+  }
+}
+function srcMark(range) {
+  // mark [start, end) of the source box on its backdrop (a selection made in the PDF), or clear the mark
+  const back = $('ed-back'), v = $('ed-text').value;
+  if (!range) { back.textContent = v + '\n'; return; }
+  back.innerHTML = esc(v.slice(0, range[0])) + '<mark>' + esc(v.slice(range[0], range[1])) + '</mark>' + esc(v.slice(range[1])) + '\n';
+  back.scrollTop = $('ed-text').scrollTop;
+  const mk = back.querySelector('mark');
+  if (mk) { const t = mk.offsetTop - back.clientHeight / 3; $('ed-text').scrollTop = back.scrollTop = Math.max(0, t); }
+}
+async function pdfSelToSource() {
+  // a selection in the PDF: open its paragraph (without taking the focus, so Comment still works) and mark it
+  const sel = getSelection(); if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+  const r = sel.getRangeAt(0);
+  const layer = (n) => (n.nodeType === 1 ? n : n.parentElement)?.closest('#liveView .textLayer');
+  const tl = layer(r.startContainer); if (!tl || layer(r.endContainer) !== tl) return;
+  const Q = norm(sel.toString()); if (Q.length < 3) return;
+  const pre = document.createRange(); pre.selectNodeContents(tl); pre.setEnd(r.startContainer, r.startOffset);
+  const post = document.createRange(); post.selectNodeContents(tl); post.setStart(r.endContainer, r.endOffset);
+  const before = norm(pre.toString()).slice(-32), after = norm(post.toString()).slice(0, 32);
+  const el = tl.closest('.page'), doc = el.dataset.doc, P = el._P, rect = r.getClientRects()[0], pr = el.getBoundingClientRect();
+  if (!rect) return;
+  if (!ED.block || ED.block.doc !== doc || !(await inBlock())) {
+    const x = (rect.left + 2 - pr.left) / pr.width * P.vp0.width, y = (rect.top + rect.height / 2 - pr.top) / pr.height * P.vp0.height;
+    let res; try { res = await api(`synctex/${doc}?page=${el.dataset.n}&x=${x.toFixed(1)}&y=${y.toFixed(1)}`); } catch (e) { return; }
+    if (!res.line) return;
+    await edOpen(doc, res.line, { word: sel.toString().trim().split(/\s+/)[0].replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''), before: '', after: '' }, { focus: false, scroll: false });
+  }
+  const si = srcIndex($('ed-text').value);
+  const s0 = locate(si.s, before, Q.slice(0, 32)); if (s0.p < 0 || s0.score < 6) return;
+  const s1 = locate(si.s, Q.slice(-32), after, s0.p);
+  const end = s1.p > s0.p ? s1.p : Math.min(si.s.length, s0.p + Q.length);
+  srcMark([si.at[s0.p], si.at[end - 1] + 1]);
+  async function inBlock() {    // is the selected text in the open paragraph?
+    const si = srcIndex($('ed-text').value); return locate(si.s, before, Q.slice(0, 32)).score >= Math.min(24, Q.length + 6);
+  }
+}
+$('liveView').addEventListener('mouseup', () => setTimeout(pdfSelToSource, 0));
+for (const ev of ['keyup', 'mouseup', 'select', 'focus']) $('ed-text').addEventListener(ev, syncSoon);
+$('ed-text').addEventListener('input', () => { srcMark(null); syncSoon(); });
+$('ed-text').addEventListener('scroll', () => { $('ed-back').scrollTop = $('ed-text').scrollTop; });
+$('ed-text').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('ed-text')) document.querySelectorAll('.sync-caret').forEach((e) => e.remove()); }, 150));
+
 // the word under the click, with some context, to put the cursor on it in the source
 function wordsAt(x, y) {
   let node, off;
@@ -889,6 +1056,7 @@ $('liveView').addEventListener('click', async (e) => {
   let res;
   try { res = await api(`synctex/${el.dataset.doc}?page=${el.dataset.n}&x=${x.toFixed(1)}&y=${y.toFixed(1)}`); } catch (err) { toast('Could not look up the source line.'); return; }
   if (!res.line) { toast('No source text found at this point (page header or footer?).'); return; }
+  const s2 = getSelection(); if (s2 && !s2.isCollapsed && s2.toString().trim()) return;   // became a double-click selection
   edOpen(el.dataset.doc, res.line, hint);
 });
 $('ed-save').onclick = () => edSave();

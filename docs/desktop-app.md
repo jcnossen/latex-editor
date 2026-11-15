@@ -15,6 +15,10 @@ The website works, but for daily writing a local app would be quicker and less a
 1. **Edit through the PDF view.** Click a paragraph in the rendered PDF to edit its LaTeX (synctex), save, and see
    the page update in about a second. Same paragraph editor as the web Edit tab: highlight in the PDF, caret on the
    clicked word, previous/next paragraph, history and undo.
+   **Overleaf-style two-way sync** (now in the web app, keep it): the caret in the source shows as a blinking cursor
+   in the PDF, a selection in the source is highlighted in the PDF, and a selection in the PDF is marked in the
+   source. In the web app this works at character level inside the open paragraph by aligning the normalized text of
+   both sides (`srcIndex` / `pdfIndex` / `locate` in `template.html`); synctex only finds the paragraph.
 2. **Select and discuss with Claude.** Select text in the PDF (or source), open a chat about it. Claude gets the
    selection, the surrounding source paragraph(s) and the diff of that region. Its proposed edits show up as a diff
    to accept or reject.
