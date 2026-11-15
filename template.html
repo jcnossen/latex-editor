@@ -1,0 +1,1018 @@
+<title>__TITLE__</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+/* Layout: a fixed change list on the left, the typeset paper (latexdiff markup) as a scroll of pages on the right. */
+:root {
+  --bg: #eef0f3; --panel: #ffffff; --fg: #1d2127; --fg2: #5d6570; --fg3: #8a929c; --line: #dcdfe4;
+  --accent: #2557c7; --accent-bg: #e8efff; --add: #c41414; --add-bg: #fde4e2; --del: #6e7681; --del-bg: #eef0f2;
+  --paper-shadow: 0 1px 3px rgba(20, 30, 50, .18);
+  --ui: Inter, 'Segoe UI', system-ui, sans-serif; --head: 'Source Serif 4', Georgia, serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15181d; --panel: #1d2128; --fg: #e4e7ec; --fg2: #a3abb6; --fg3: #7c8591; --line: #2e343d;
+  --accent: #7ea2ff; --accent-bg: #23304d; --add: #ff8a80; --add-bg: #4a2420; --del: #9aa3ad; --del-bg: #2a2f36;
+  --paper-shadow: 0 1px 4px rgba(0, 0, 0, .6); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15181d; --panel: #1d2128; --fg: #e4e7ec; --fg2: #a3abb6; --fg3: #7c8591; --line: #2e343d;
+  --accent: #7ea2ff; --accent-bg: #23304d; --add: #ff8a80; --add-bg: #4a2420; --del: #9aa3ad; --del-bg: #2a2f36;
+  --paper-shadow: 0 1px 4px rgba(0, 0, 0, .6); color-scheme: dark }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 13px/1.45 var(--ui); overflow: hidden; }
+.app { display: grid; grid-template-columns: 320px minmax(0, 1fr); height: 100%; }
+.side { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0;
+  padding-left: max(0px, env(safe-area-inset-left, 0px)); }
+.side header { padding: 18px 18px 12px; border-bottom: 1px solid var(--line); }
+h1 { font: 600 20px/1.2 var(--head); margin: 0; text-wrap: balance; }
+.meta { color: var(--fg2); font-size: 12px; margin-top: 6px; }
+.meta code { font-size: 11.5px; }
+.how { margin: 12px 0 0; padding: 10px 12px; background: var(--accent-bg); border-radius: 7px; font-size: 12.5px; }
+.how b { font-weight: 600; }
+.legend { display: flex; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--fg2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 18px; height: 3px; border-radius: 2px; } .sw.add { background: var(--add); } .sw.del { background: var(--del); }
+.list { overflow-y: auto; flex: 1 1 auto; padding: 8px 10px 24px; }
+.doc-h { display: flex; align-items: baseline; justify-content: space-between; margin: 12px 8px 6px; }
+.doc-h button { font: 600 12px var(--ui); text-transform: uppercase; letter-spacing: .06em; color: var(--fg2); background: none; border: 0; padding: 0; cursor: pointer; }
+.doc-h button:hover { color: var(--accent); }
+.doc-h span { color: var(--fg3); font-size: 12px; }
+.empty { color: var(--fg3); font-size: 12px; margin: 0 8px 8px; }
+.chg { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; width: 100%; text-align: left; padding: 8px 8px; border: 1px solid transparent;
+  border-radius: 7px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.chg:hover { background: var(--bg); }
+.chg.cur { border-color: var(--accent); background: var(--accent-bg); }
+.chg .tag { grid-row: span 2; align-self: start; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; margin-top: 1px; }
+.chg .tag.a { color: var(--add); background: var(--add-bg); } .chg .tag.d { color: var(--del); background: var(--del-bg); }
+.chg .where { color: var(--fg3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.chg .txt { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.chg .txt.d { text-decoration: line-through; text-decoration-color: var(--del); color: var(--fg2); }
+.side footer { border-top: 1px solid var(--line); padding: 10px 18px 12px; color: var(--fg3); font-size: 11.5px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)); }
+.main { overflow-y: auto; min-width: 0; position: relative; padding-block: 18px 60px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.doc-title { max-width: 900px; margin: 10px auto 10px; font: 600 15px var(--head); color: var(--fg2); }
+.page { position: relative; margin: 0 auto 18px; background: #fff; box-shadow: var(--paper-shadow); max-width: 900px; }
+.page canvas { display: block; width: 100%; height: auto; }
+.page .num { position: absolute; right: -2px; top: -16px; font-size: 11px; color: var(--fg3); }
+.textLayer { position: absolute; inset: 0; overflow: hidden; line-height: 1; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; z-index: 2; }
+.textLayer span, .textLayer br { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+.textLayer ::selection { background: rgba(37, 87, 199, .28); }
+.textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: -1; cursor: default; user-select: none; }
+.bar { position: absolute; left: -12px; width: 5px; border-radius: 3px; z-index: 3; cursor: pointer; border: 0; padding: 0; }
+.bar.a { background: var(--add); } .bar.d { background: var(--del); }
+.bar.approx { opacity: .45; }
+.flash { position: absolute; z-index: 1; border-radius: 3px; background: rgba(255, 196, 0, .35); outline: 2px solid rgba(230, 160, 0, .9);
+  pointer-events: none; animation: fade 2.4s ease-out forwards; }
+@keyframes fade { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; opacity: .8; } }
+.cbtn { position: absolute; z-index: 20; display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 0; border-radius: 16px;
+  background: var(--accent); color: #fff; font: 600 12.5px var(--ui); box-shadow: 0 2px 8px rgba(0, 0, 0, .25); cursor: pointer; }
+.cbtn kbd { font: 500 10.5px var(--ui); background: rgba(255, 255, 255, .22); border-radius: 3px; padding: 0 4px; }
+.cbtn:focus-visible, .chg:focus-visible, .bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(18px, env(safe-area-inset-bottom, 0px)); z-index: 30; max-width: min(520px, calc(100vw - 32px));
+  background: var(--fg); color: var(--panel); padding: 9px 14px; border-radius: 8px; font-size: 12.5px; }
+.loading { color: var(--fg3); text-align: center; padding: 40px 0; }
+.seg { display: flex; padding: 2px; background: var(--bg); border-radius: 7px; margin-top: 12px; }
+.seg button { flex: 1; height: 28px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--fg2); font: 500 12.5px var(--ui); cursor: pointer; }
+.seg button[aria-selected="true"] { background: var(--panel); border-color: var(--line); color: var(--fg); font-weight: 600; }
+.figlist .chg .tag.same { color: var(--fg3); background: var(--bg); }
+.figs { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.fig { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 14px 16px 16px; }
+.fig.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.fig > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 10px; }
+.fig h2 { font: 600 16px var(--head); margin: 0; }
+.fig .lab { color: var(--fg3); font-size: 12px; }
+.fig .tag { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 4px; }
+.tag.a { color: var(--add); background: var(--add-bg); } .tag.d { color: var(--del); background: var(--del-bg); } .tag.same { color: var(--fg3); background: var(--bg); }
+.fig .act { margin-left: auto; height: 28px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 12.5px var(--ui); cursor: pointer; }
+.fig .act:hover { border-color: var(--accent); }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.pair figure { margin: 0; min-width: 0; }
+.pair figcaption { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg3); margin-bottom: 6px; }
+.pair img { display: block; width: 100%; height: auto; background: #fff; border: 1px solid var(--line); border-radius: 4px; cursor: zoom-in; }
+.pair .none { display: grid; place-items: center; min-height: 160px; border: 1px dashed var(--line); border-radius: 4px; color: var(--fg3); font-size: 12px; }
+.caps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 12px; }
+.cap { font: 13.5px/1.55 'Source Serif 4', Georgia, serif; color: var(--fg); min-width: 0; }
+.cap.old { color: var(--fg2); }
+.cap ins { text-decoration: none; background: var(--add-bg); color: var(--add); border-radius: 2px; }
+.cap del { background: var(--del-bg); color: var(--del); border-radius: 2px; }
+.cap .h { display: block; font: 600 11px var(--ui); letter-spacing: .06em; text-transform: uppercase; color: var(--fg3); margin-bottom: 4px; }
+.lightbox { position: fixed; inset: 0; z-index: 40; background: rgba(10, 12, 16, .82); display: grid; place-items: center; padding: 24px; cursor: zoom-out; }
+.lightbox img { max-width: 100%; max-height: 100%; background: #fff; border-radius: 4px; }
+@media (max-width: 820px) { .pair, .caps { grid-template-columns: 1fr; } }
+/* changes editor + own comments (VPS mode) */
+:root { --chg-bg: #fde4e2; --chg-fg: #a8231a; --del-fg: #8a8f98; --ok: #1a7f37; --ok-bg: #e3f2e7; --rej: #8a8f98; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --chg-bg: #4a2420; --chg-fg: #ffb4a8; --del-fg: #7c8591; --ok: #56c271; --ok-bg: #1d3a26; --rej: #7c8591; } }
+:root[data-theme="dark"] { --chg-bg: #4a2420; --chg-fg: #ffb4a8; --del-fg: #7c8591; --ok: #56c271; --ok-bg: #1d3a26; --rej: #7c8591; }
+[hidden] { display: none !important; }
+.hk { display: block; width: 100%; text-align: left; padding: 8px; border: 1px solid transparent; border-radius: 7px; background: none; color: var(--fg); font: 13px/1.4 var(--ui); cursor: pointer; }
+.hk:hover { background: var(--bg); } .hk.cur { border-color: var(--accent); }
+.hk .top { display: flex; gap: 8px; align-items: center; margin-bottom: 3px; } .hk .where { color: var(--fg3); font-size: 11.5px; }
+.hk .txt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--fg2); font-size: 12.5px; }
+.hunks { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.hunk { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; }
+.hunk.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.hunk header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 6px; }
+.hunk .where { font-weight: 600; } .hunk .ln { color: var(--fg3); font-size: 12px; }
+.st { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 4px; }
+.st.open { background: var(--bg); color: var(--fg2); } .st.accept { background: var(--ok-bg); color: var(--ok); }
+.st.reject { background: var(--bg); color: var(--rej); text-decoration: line-through; } .st.edit { background: var(--accent-bg); color: var(--accent); }
+.hunk .ctx { color: var(--fg3); font-size: 12px; margin: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.src { font: 13px/1.6 ui-monospace, 'Cascadia Mono', Consolas, monospace; white-space: pre-wrap; word-break: break-word; background: var(--bg); border-radius: 6px; padding: 10px 12px; margin: 0; }
+.src ins { text-decoration: none; background: var(--chg-bg); color: var(--chg-fg); border-radius: 2px; }
+.src del { color: var(--del-fg); }
+.hunk .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.hunk .acts button { height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 12.5px var(--ui); cursor: pointer; }
+.hunk .acts button:hover { border-color: var(--accent); }
+.hunk .acts .a { border-color: var(--ok); color: var(--ok); } .hunk .acts .r { color: var(--fg2); }
+.hunk textarea, .cdlg textarea { width: 100%; min-height: 140px; font: 13px/1.5 ui-monospace, Consolas, monospace; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); margin-top: 8px; }
+.filter { display: flex; gap: 6px; margin: 4px 8px 8px; } .filter button { height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--line); background: none; color: var(--fg2); font: 500 12px var(--ui); cursor: pointer; }
+.filter button[aria-pressed="true"] { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.cdlg { position: fixed; inset: 0; z-index: 50; background: rgba(10, 12, 16, .5); display: grid; place-items: center; padding: 16px; }
+.cdlg > div { background: var(--panel); color: var(--fg); border-radius: 10px; padding: 16px; width: min(560px, 100%); box-shadow: 0 8px 30px rgba(0,0,0,.3); }
+.cdlg .q { color: var(--fg2); font-size: 12.5px; border-left: 3px solid var(--line); padding-left: 8px; margin: 6px 0; max-height: 6em; overflow: auto; }
+.cdlg .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.cdlg button { height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 13px var(--ui); cursor: pointer; }
+.cdlg button.p { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cmts { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.cmt { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 10px 14px; }
+.cmt.res { opacity: .55; } .cmt .w { color: var(--fg3); font-size: 12px; } .cmt .q { color: var(--fg2); font-size: 12.5px; border-left: 3px solid var(--line); padding-left: 8px; margin: 4px 0; }
+.cmt button { height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--fg2); font: 500 12px var(--ui); cursor: pointer; margin-top: 6px; }
+
+/* live editor (VPS mode): the current text as a fast-compiled PDF; click a paragraph to edit its LaTeX source */
+.app.editing { grid-template-columns: 300px minmax(0, 1fr) minmax(380px, 42%); }
+.editor { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; padding: 12px 14px;
+  padding-right: max(14px, env(safe-area-inset-right, 0px)); gap: 8px; }
+.editor header { display: flex; align-items: center; gap: 8px; }
+.editor header b { font: 600 14px var(--head); }
+.editor header .ln { color: var(--fg3); font-size: 12px; }
+.editor header .x { margin-left: auto; width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--fg2); cursor: pointer; font-size: 16px; line-height: 1; }
+.editor textarea { flex: 1 1 auto; min-height: 160px; width: 100%; resize: none; font: 13.5px/1.6 ui-monospace, 'Cascadia Mono', Consolas, monospace; padding: 10px 12px;
+  border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+.editor textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.ed-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ed-acts button, .edside button.b { height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 12.5px var(--ui); cursor: pointer; }
+.ed-acts button:hover, .edside button.b:hover { border-color: var(--accent); }
+.ed-acts button.p { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.ed-acts button:disabled { opacity: .5; cursor: default; }
+.ed-acts kbd { font: 500 10.5px var(--ui); opacity: .8; margin-left: 4px; }
+.ed-acts .sp { flex: 1; }
+.ed-msg { font-size: 12.5px; color: var(--fg2); min-height: 18px; }
+.ed-msg.err { color: var(--add); } .ed-msg.ok { color: var(--ok); }
+.ed-msg button { height: 24px; padding: 0 8px; margin-left: 6px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 12px var(--ui); cursor: pointer; }
+.livedoc .doc-title { display: flex; align-items: baseline; gap: 10px; }
+.livedoc .doc-title .bst { font: 500 11.5px var(--ui); color: var(--fg3); }
+#liveView .page { cursor: text; }
+#liveView .textLayer { inset: auto; left: 0; top: 0; transform-origin: 0 0; }
+.ehl { position: absolute; z-index: 1; pointer-events: none; border-radius: 3px; background: rgba(37, 87, 199, .10); outline: 2px solid rgba(37, 87, 199, .55); outline-offset: 2px; }
+.edside { padding: 4px 8px; }
+.edside h3 { font: 600 11.5px var(--ui); text-transform: uppercase; letter-spacing: .06em; color: var(--fg2); margin: 14px 0 6px; }
+.bstat { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.bstat .d { font-weight: 600; } .bstat .s { color: var(--fg2); font-size: 12px; }
+.pill { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 4px; background: var(--bg); color: var(--fg2); }
+.pill.ok { background: var(--ok-bg); color: var(--ok); } .pill.running { background: var(--accent-bg); color: var(--accent); } .pill.error { background: var(--add-bg); color: var(--add); }
+.errs { grid-column: 1 / -1; margin: 4px 0 0; padding: 0; list-style: none; }
+.errs button { display: block; width: 100%; text-align: left; border: 0; background: var(--add-bg); color: var(--add); border-radius: 5px; padding: 4px 8px; margin-top: 3px; font: 12px/1.35 var(--ui); cursor: pointer; }
+.edfind { width: 100%; height: 30px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 0 10px; font: 13px var(--ui); }
+.hits button, .hist button.h { display: block; width: 100%; text-align: left; border: 1px solid transparent; background: none; color: var(--fg); border-radius: 6px; padding: 5px 6px; font: 12.5px/1.35 var(--ui); cursor: pointer; }
+.hits button:hover, .hist button.h:hover { background: var(--bg); }
+.hits .w, .hist .w { color: var(--fg3); font-size: 11.5px; display: block; }
+.hist .m { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.patch { font: 12.5px/1.55 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; background: var(--bg); border-radius: 6px; padding: 10px; max-height: 55vh; overflow: auto; margin: 8px 0; }
+.patch ins { text-decoration: none; background: var(--chg-bg); color: var(--chg-fg); } .patch del { color: var(--del-fg); }
+.patch .fh { color: var(--fg3); }
+
+@media (max-width: 820px) {
+  .app.editing { display: block; }
+  .editor { position: fixed; left: 0; right: 0; bottom: 0; height: 56vh; z-index: 35; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgba(0,0,0,.18); }
+  body { overflow: auto; } .app { display: block; height: auto; }
+  .side { border-right: 0; border-bottom: 1px solid var(--line); }
+  .list { max-height: 40vh; }
+  .main { overflow: visible; }
+  .bar { left: -8px; width: 4px; }
+}
+</style>
+
+<div class="app">
+  <aside class="side">
+    <header>
+      <h1>__TITLE__</h1>
+      <div class="meta" id="meta"></div>
+      <div class="legend"><span><i class="sw add"></i>added</span><span><i class="sw del"></i>deleted</span></div>
+      <p class="meta">Red wavy underline: new text since the baseline; grey strikethrough: removed.<span id="flatnote" hidden> The previous round's own blue/red markup is accepted in this view.</span></p>
+      <p class="how" id="how">Select text in the paper, press <b>Comment</b> (or <b>C</b>), write what should change and press <b>Send to Claude</b>.</p>
+      <div class="seg" role="tablist"><button type="button" id="v-edit" aria-selected="false" hidden>Edit</button><button type="button" id="v-paper" aria-selected="true">Paper</button><button type="button" id="v-chg" aria-selected="false">Changes</button><button type="button" id="v-figs" aria-selected="false">Figures</button><button type="button" id="v-cmt" aria-selected="false">Comments</button></div>
+    </header>
+    <nav class="list" id="list" aria-label="Changes"></nav>
+    <nav class="list figlist" id="figlist" aria-label="Figures" hidden></nav>
+    <nav class="list" id="hunklist" aria-label="Source changes" hidden></nav>
+    <nav class="list" id="cmtlist" aria-label="Comments" hidden></nav>
+    <nav class="list edside" id="edlist" aria-label="Editor" hidden>
+      <h3>Build</h3><div id="ed-builds"></div>
+      <h3>Find in the source</h3><input class="edfind" id="ed-find" type="search" placeholder="Words from the paragraph…" autocomplete="off"><div class="hits" id="ed-hits"></div>
+      <h3>Saved edits</h3><div class="hist" id="ed-hist"></div>
+    </nav>
+    <footer id="foot">J / K: next / previous change</footer>
+  </aside>
+  <main class="main" id="main"><div id="liveView" hidden></div><div id="paperView"><div class="loading" id="loading">Rendering the paper…</div></div><div class="figs" id="figView" hidden></div><div class="hunks" id="chgView" hidden></div><div class="cmts" id="cmtView" hidden></div></main>
+  <aside class="editor" id="editor" hidden aria-label="Paragraph editor">
+    <header><b id="ed-where"></b><span class="ln" id="ed-lines"></span><button type="button" class="x" id="ed-close" title="Close (Esc)" aria-label="Close the editor">×</button></header>
+    <textarea id="ed-text" spellcheck="true" aria-label="LaTeX source of the paragraph"></textarea>
+    <div class="ed-acts"><button type="button" class="p" id="ed-save">Save &amp; update<kbd>Ctrl+Enter</kbd></button><button type="button" id="ed-discard">Discard</button><span class="sp"></span>
+      <button type="button" id="ed-prev" title="Previous paragraph (Alt+↑)">↑</button><button type="button" id="ed-next" title="Next paragraph (Alt+↓)">↓</button></div>
+    <div class="ed-msg" id="ed-msg" aria-live="polite"></div>
+  </aside>
+</div>
+<button class="cbtn" id="cbtn" hidden>Comment <kbd>C</kbd></button>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script>
+const D = /*__REVIEW_DATA__*/null;
+const $ = (id) => document.getElementById(id);
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const state = { flat: [], cur: -1, pages: {} };   // flat: all changes in reading order; pages[doc][n] = {el, tc, vp}
+const norm = (s) => s.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+function toast(msg, ms = 3200) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms);
+}
+
+// ---------- sidebar
+function renderMeta() {
+  const m = D.meta;
+  $('flatnote').hidden = !m.flatten;
+  const dirty = m.dirty.filter((s) => /\.(tex|bib)$/.test(s)).length;
+  $('meta').innerHTML = `Changes since <code>${m.base}</code> (${m.base_commit}), built ${m.built}` +
+    (dirty ? ` from the working tree (${dirty} edited source file${dirty > 1 ? 's' : ''}, not yet committed)` : '');
+}
+function renderList() {
+  const L = $('list'); L.innerHTML = '';
+  for (const doc of D.docs) {
+    const h = document.createElement('div'); h.className = 'doc-h';
+    h.innerHTML = `<button type="button">${doc.title}</button><span>${doc.changes.length} change${doc.changes.length === 1 ? '' : 's'}</span>`;
+    h.querySelector('button').onclick = () => $('doc-' + doc.key)?.scrollIntoView({ block: 'start' });
+    L.append(h);
+    if (!doc.changes.length) { const e = document.createElement('p'); e.className = 'empty'; e.textContent = 'No changes.'; L.append(e); }
+    for (const c of doc.changes) {
+      const i = state.flat.length; state.flat.push({ doc: doc.key, c });
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chg'; b.id = 'chg-' + i;
+      b.innerHTML = `<span class="tag ${c.type}">${c.type === 'a' ? 'Added' : 'Deleted'}</span><span class="where">p. ${c.page}</span><span class="txt ${c.type}"></span>`;
+      b.querySelector('.txt').textContent = c.text;
+      b.onclick = () => go(i);
+      L.append(b);
+    }
+  }
+}
+
+// ---------- rendering
+async function renderDoc(doc, main) {
+  const head = document.createElement('div'); head.className = 'doc-title'; head.id = 'doc-' + doc.key; head.textContent = doc.title;
+  main.append(head);
+  const pdf = await pdfjsLib.getDocument({ url: doc.file }).promise;
+  state.pages[doc.key] = {};
+  const width = Math.min(900, $('main').clientWidth - 32);   // the scroll area (the paper view may be hidden)
+  // text layers for every page right away (selection, comment anchors, change search); the page images are painted
+  // when a page comes near the viewport
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const page = await pdf.getPage(n);
+    const vp0 = page.getViewport({ scale: 1 });
+    const scale = width / vp0.width, vp = page.getViewport({ scale });
+    const el = document.createElement('section'); el.className = 'page'; el.id = `p-${doc.key}-${n}`;
+    el.style.aspectRatio = `${vp.width} / ${vp.height}`;
+    el.setAttribute('aria-label', `${doc.title}, page ${n}`);
+    const num = document.createElement('span'); num.className = 'num'; num.textContent = n; el.append(num);
+    const cv = document.createElement('canvas'); const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(vp.width * dpr); cv.height = Math.round(vp.height * dpr); el.append(cv);
+    const tl = document.createElement('div'); tl.className = 'textLayer'; tl.style.setProperty('--scale-factor', scale); el.append(tl);
+    main.append(el);
+    const tc = await page.getTextContent();
+    await pdfjsLib.renderTextLayer({ textContentSource: tc, container: tl, viewport: vp, textDivs: [] }).promise;
+    state.pages[doc.key][n] = { el, tc, vp };
+    el._paint = () => { el._paint = null; return page.render({ canvasContext: cv.getContext('2d'), viewport: page.getViewport({ scale: scale * dpr }) }).promise; };
+    painter.observe(el);
+  }
+  placeBars(doc);
+}
+let paintChain = Promise.resolve();
+const painter = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.isIntersecting && e.target._paint) { const f = e.target._paint; painter.unobserve(e.target); paintChain = paintChain.then(f, f); }
+}, { root: null, rootMargin: '1500px 0px' });
+
+// Locate each change on its page by its text (plus the text after it, for short changes), in order; draw a bar
+// in the margin at that height.
+function placeBars(doc) {
+  const byPage = {};
+  doc.changes.forEach((c) => (byPage[c.page] ??= []).push(c));
+  for (const [pn, list] of Object.entries(byPage)) {
+    const P = state.pages[doc.key][pn]; if (!P) continue;
+    let s = '', owner = [];
+    P.tc.items.forEach((it, k) => { const t = norm(it.str); s += t; for (let j = 0; j < t.length; j++) owner.push(k); });
+    let from = 0;
+    for (const c of list) {
+      const key = norm(c.text), ctx = norm(c.after).slice(0, 24);
+      let at = -1;
+      if (key.length) {
+        for (const q of [key.slice(0, 60) + (key.length < 60 ? ctx : ''), key.slice(0, 60), key.slice(0, 20)]) {
+          if (q.length < 3) continue;
+          at = s.indexOf(q, from); if (at < 0) at = s.indexOf(q);
+          if (at >= 0) { c._len = Math.min(q.length, key.length); break; }
+        }
+      }
+      let top, h = 14, approx = false;
+      if (at >= 0) {
+        const it0 = P.tc.items[owner[at]], it1 = P.tc.items[owner[Math.min(owner.length - 1, at + c._len - 1)]];
+        const y0 = P.vp.convertToViewportPoint(it0.transform[4], it0.transform[5] + it0.height)[1];
+        const y1 = P.vp.convertToViewportPoint(it1.transform[4], it1.transform[5])[1];
+        top = Math.min(y0, y1); h = Math.max(10, Math.abs(y1 - y0) + 2);
+        c._items = [owner[at], owner[Math.min(owner.length - 1, at + c._len - 1)]];
+        from = at + 1;
+      } else {
+        const y = c.y > 0 ? P.vp.convertToViewportPoint(0, c.y)[1] : 30;
+        top = y; approx = true;
+      }
+      c._top = top; c._h = h;
+      const b = document.createElement('button'); b.type = 'button';
+      b.className = `bar ${c.type}${approx ? ' approx' : ''}`;
+      b.style.top = (100 * top / P.vp.height) + '%'; b.style.height = (100 * h / P.vp.height) + '%';
+      b.title = (c.type === 'a' ? 'Added: ' : 'Deleted: ') + c.text.slice(0, 120);
+      b.onclick = () => go(state.flat.findIndex((f) => f.c === c));
+      P.el.append(b);
+    }
+  }
+}
+
+function go(i) {
+  if (i < 0 || i >= state.flat.length) return;
+  state.cur = i;
+  document.querySelectorAll('.chg.cur').forEach((e) => e.classList.remove('cur'));
+  const li = $('chg-' + i); li.classList.add('cur'); li.scrollIntoView({ block: 'nearest' });
+  const { doc, c } = state.flat[i], P = state.pages[doc]?.[c.page];
+  if (!P) return;
+  const main = $('main'), frac = (c._top ?? 0) / P.vp.height;
+  const y = P.el.offsetTop + frac * P.el.clientHeight - main.clientHeight * 0.3;
+  main.scrollTo({ top: Math.max(0, y), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  const f = document.createElement('div'); f.className = 'flash';
+  f.style.left = '4%'; f.style.width = '92%';
+  f.style.top = (100 * (c._top ?? 0) / P.vp.height) + '%'; f.style.height = (100 * (c._h ?? 14) / P.vp.height) + '%';
+  P.el.append(f); setTimeout(() => f.remove(), 2600);
+}
+
+// ---------- commenting: the selection opens claude.ai's own comment box (with Send to Claude)
+let comments = null;
+function selRange() {
+  const s = getSelection(); if (!s || s.isCollapsed || !s.rangeCount) return null;
+  const r = s.getRangeAt(0);
+  const inLayer = (n) => (n.nodeType === 1 ? n : n.parentElement)?.closest('.textLayer');
+  return inLayer(r.startContainer) && inLayer(r.endContainer) && s.toString().trim() ? r : null;
+}
+function placeCbtn() {
+  const r = selRange(), b = $('cbtn');
+  if (!r) { b.hidden = true; return; }
+  const rects = r.getClientRects(), last = rects[rects.length - 1] || r.getBoundingClientRect();
+  b.hidden = false;
+  const x = Math.min(window.scrollX + last.right + 6, window.scrollX + document.documentElement.clientWidth - b.offsetWidth - 16);
+  b.style.left = Math.max(window.scrollX + 8, x) + 'px'; b.style.top = (window.scrollY + last.bottom + 6) + 'px';
+}
+async function comment() {
+  const r = selRange(); if (!r) return;
+  if (VPS) { const pg = r.startContainer.parentElement?.closest('.page'); openCommentDialog(pg ? pg.getAttribute('aria-label') : 'paper', r.toString()); return; }
+  if (!comments) { toast('Commenting from the page is not available here. Use the comment tool of claude.ai on the selected text.'); return; }
+  try {
+    const res = await comments.openComposer({ range: r });
+    if (res.opened) $('cbtn').hidden = true;
+  } catch (e) {
+    if (e?.code === 'unavailable') toast('Comments are off in this view.');
+    else if (e?.code === 'rate_limited') toast('Too many comment boxes opened in a row: wait a moment.');
+    else toast('Could not open the comment box (' + (e?.code || 'error') + ').');
+  }
+}
+$('cbtn').addEventListener('mousedown', (e) => e.preventDefault());   // keep the selection
+$('cbtn').onclick = comment;
+document.addEventListener('mouseup', () => setTimeout(placeCbtn, 0));
+document.addEventListener('keyup', (e) => { if (e.shiftKey || e.key.startsWith('Arrow')) placeCbtn(); });
+$('main').addEventListener('scroll', () => { $('cbtn').hidden = true; }, { passive: true });
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'c' && selRange()) { e.preventDefault(); comment(); }
+  else if (state.view && state.view !== 'paper') return;
+  else if (e.key === 'j') go(state.cur + 1);
+  else if (e.key === 'k') go(Math.max(0, state.cur - 1));
+});
+
+// ---------- figures: before / after with both captions (word-level caption diff)
+function wordDiff(a, b) {
+  const A = a.split(/\s+/).filter(Boolean), B = b.split(/\s+/).filter(Boolean), n = A.length, m = B.length;
+  const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  const push = (t, w) => { const last = out[out.length - 1]; if (last && last.t === t) last.w.push(w); else out.push({ t, w: [w] }); };
+  while (i < n && j < m) { if (A[i] === B[j]) { push('=', B[j]); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) push('-', A[i++]); else push('+', B[j++]); }
+  while (i < n) push('-', A[i++]); while (j < m) push('+', B[j++]);
+  return out;
+}
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+function figTitle(f) {
+  const kind = (D.meta.cfg_docs || []).find((d) => d.key === f.doc)?.fig_prefix || 'Fig. ';
+  return f.num ? kind + f.num : kind.replace(/Fig\. ?$/, 'figure') + ' (removed)';
+}
+function figStatus(f) {
+  if (!f.new_file) return ['d', 'Removed'];
+  if (!f.old_file && f.old_caption == null) return ['a', 'New'];
+  const capChanged = (f.old_caption || '') !== (f.new_caption || '');
+  if (f.image_changed) return ['a', capChanged ? 'Image and caption changed' : 'Image changed'];
+  return capChanged ? ['a', 'Caption changed'] : ['same', 'Unchanged'];
+}
+function renderFigures() {
+  const V = $('figView'), L = $('figlist'); V.innerHTML = ''; L.innerHTML = '';
+  const figs = D.figures || [];
+  if (!figs.length) { V.innerHTML = '<p class="loading">No figures in this build.</p>'; return; }
+  figs.forEach((f, i) => {
+    const [k, label] = figStatus(f);
+    const card = document.createElement('article'); card.className = 'fig'; card.id = 'fig-' + i;
+    const img = (src, what) => src ? `<img src="${src}" alt="${what} of ${figTitle(f)}" loading="lazy">` : `<div class="none">${what === 'Before' ? 'Not in the previous version' : 'Removed'}</div>`;
+    let cap = '';
+    if (f.old_caption != null && f.new_caption != null) {
+      cap = wordDiff(f.old_caption, f.new_caption).map((d) => d.t === '=' ? esc(d.w.join(' ')) : d.t === '+' ? `<ins>${esc(d.w.join(' '))}</ins>` : `<del>${esc(d.w.join(' '))}</del>`).join(' ');
+    }
+    card.innerHTML = `<header><h2>${figTitle(f)}</h2><span class="lab">${f.label || f.new_file || f.old_file}</span><span class="tag ${k}">${label}</span>` +
+      `<button type="button" class="act">Comment on this figure</button></header>` +
+      `<div class="pair"><figure><figcaption>Before</figcaption>${img(f.old_png, 'Before')}</figure><figure><figcaption>After</figcaption>${img(f.new_png, 'After')}</figure></div>` +
+      `<div class="caps"><div class="cap old"><span class="h">Caption before</span>${f.old_caption != null ? esc(f.old_caption) : '—'}</div>` +
+      `<div class="cap"><span class="h">Caption after (changes marked)</span>${f.new_caption == null ? '—' : f.old_caption == null ? esc(f.new_caption) : cap}</div></div>`;
+    card.querySelector('.act').onclick = async () => {
+      if (VPS) { openCommentDialog(figTitle(f) + (f.label ? ' (' + f.label + ')' : ''), ''); return; }
+      if (!comments) { toast('Commenting from the page is not available here. Use the comment tool of claude.ai on this figure.'); return; }
+      try { await comments.openComposer({ element: card }); } catch (e) { toast('Could not open the comment box (' + (e?.code || 'error') + ').'); }
+    };
+    card.querySelectorAll('.pair img').forEach((im) => { im.onclick = () => lightbox(im.src); });
+    V.append(card);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'chg';
+    b.innerHTML = `<span class="tag ${k}">${label.split(' ')[0]}</span><span class="where">${figTitle(f)}</span><span class="txt"></span>`;
+    b.querySelector('.txt').textContent = label;
+    b.onclick = () => { document.querySelectorAll('.fig.cur').forEach((e) => e.classList.remove('cur')); card.classList.add('cur'); card.scrollIntoView({ block: 'start' }); };
+    L.append(b);
+  });
+}
+function lightbox(src) {
+  const d = document.createElement('div'); d.className = 'lightbox'; d.innerHTML = `<img src="${src}" alt="">`;
+  d.onclick = () => d.remove(); document.addEventListener('keydown', function k(e) { if (e.key === 'Escape') { d.remove(); document.removeEventListener('keydown', k); } });
+  document.body.append(d);
+}
+function setView(v) {
+  const views = { edit: ['liveView', 'edlist'], paper: ['paperView', 'list'], figures: ['figView', 'figlist'], changes: ['chgView', 'hunklist'], comments: ['cmtView', 'cmtlist'] };
+  const was = state.view;
+  if (was === 'edit' || was === 'paper') (state.scroll ??= {})[was] = $('main').scrollTop;
+  for (const [k, [main, side]] of Object.entries(views)) { $(main).hidden = k !== v; $(side).hidden = k !== v; }
+  $('v-edit').setAttribute('aria-selected', String(v === 'edit'));
+  $('v-paper').setAttribute('aria-selected', String(v === 'paper')); $('v-figs').setAttribute('aria-selected', String(v === 'figures'));
+  $('v-chg').setAttribute('aria-selected', String(v === 'changes')); $('v-cmt').setAttribute('aria-selected', String(v === 'comments'));
+  $('foot').textContent = { edit: 'Click a paragraph in the PDF to edit it · Ctrl+Enter save · Alt+↑/↓ previous / next paragraph', paper: 'J / K: next / previous change', figures: 'Click an image to see it full size', changes: 'J / K: next / previous · A accept · R reject · E edit', comments: '' }[v];
+  state.view = v;
+  $('editor').hidden = v !== 'edit' || !ED.block; document.querySelector('.app').classList.toggle('editing', v === 'edit' && !!ED.block);
+  const def = ED.ready ? 'edit' : 'paper';
+  const h = v === def ? '' : '#' + v;
+  if (location.hash !== h) history.replaceState(null, '', h || location.pathname + location.search);
+  $('main').scrollTop = state.scroll?.[v] ?? 0;
+  if (v === 'comments') loadComments();
+  if (v === 'paper') ensureTracked();
+}
+$('v-edit').onclick = () => setView('edit');
+$('v-paper').onclick = () => setView('paper');
+$('v-figs').onclick = () => setView('figures');
+$('v-chg').onclick = () => setView('changes');
+$('v-cmt').onclick = () => setView('comments');
+
+
+// ---------- VPS mode: own comments + the source-changes editor (decisions stored by the review app)
+const VPS = D.meta.mode === 'vps';
+if (VPS) {
+  $('how').innerHTML = 'Paper: select text and press <b>Comment</b> (or <b>C</b>). Changes: every edited source paragraph, with <b>Accept</b>, <b>Reject</b> or <b>Edit</b>; decisions and comments are saved on this site.';
+}
+const API = './api/';
+async function api(path, method = 'GET', body) {
+  const r = await fetch(API + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function openCommentDialog(where, quote) {
+  const d = document.createElement('div'); d.className = 'cdlg';
+  d.innerHTML = `<div role="dialog" aria-label="Comment"><b>Comment</b><div class="w" style="color:var(--fg3);font-size:12px">${esc(where)}</div>` +
+    (quote ? `<div class="q">${esc(quote.slice(0, 600))}</div>` : '') +
+    `<textarea id="cdlg-t" placeholder="What should change?"></textarea><div class="row"><button type="button" class="c">Cancel</button><button type="button" class="p">Save comment</button></div></div>`;
+  document.body.append(d);
+  const t = d.querySelector('textarea'); t.focus();
+  const close = () => d.remove();
+  d.querySelector('.c').onclick = close;
+  d.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  d.querySelector('.p').onclick = async () => {
+    if (!t.value.trim()) { t.focus(); return; }
+    try { await api('comments', 'POST', { where, quote, text: t.value }); close(); toast('Comment saved.'); $('cbtn').hidden = true; }
+    catch (e) { toast('Could not save the comment (' + e.message + '). Your text is still in the box.'); }
+  };
+}
+async function loadComments() {
+  if (!VPS) { $('cmtView').innerHTML = '<p class="loading">Comments are kept by claude.ai in this view.</p>'; return; }
+  let list = [];
+  try { list = await api('comments'); } catch (e) { $('cmtView').innerHTML = '<p class="loading">Could not load the comments.</p>'; return; }
+  $('cmtView').innerHTML = list.length ? '' : '<p class="loading">No comments yet. Select text in the paper, or use the buttons on figures and changes.</p>';
+  $('cmtlist').innerHTML = `<div class="doc-h"><span>${list.filter((c) => !c.resolved).length} open, ${list.filter((c) => c.resolved).length} resolved</span></div>`;
+  for (const c of list) {
+    const el = document.createElement('article'); el.className = 'cmt' + (c.resolved ? ' res' : '');
+    el.innerHTML = `<div class="w">${esc(c.where || '')} · ${new Date(c.created * 1000).toLocaleString()}</div>` + (c.quote ? `<div class="q">${esc(c.quote)}</div>` : '') +
+      `<div>${esc(c.text)}</div><button type="button">${c.resolved ? 'Reopen' : 'Mark resolved'}</button>`;
+    el.querySelector('button').onclick = async () => { await api('comments/' + c.id, 'PUT', { resolved: !c.resolved }); loadComments(); };
+    $('cmtView').append(el);
+  }
+}
+
+let decisions = {}, hcur = -1, hfilter = 'all';
+const STLABEL = { open: 'Open', accept: 'Accepted', reject: 'Rejected', edit: 'Edited' };
+const hstatus = (h) => decisions[h.id]?.status || 'open';
+function srcDiff(a, b) {
+  // word diff of LaTeX source, whitespace kept with the words
+  const tok = (x) => x.match(/\s+|[^\s]+/g) || [];
+  const A = tok(a), B = tok(b), n = A.length, m = B.length;
+  if (n * m > 4e6) return `<del>${esc(a)}</del>\n<ins>${esc(b)}</ins>`;
+  const L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  let out = '', i = 0, j = 0, mode = '', buf = '';
+  const flush = () => { if (buf) out += mode === '+' ? `<ins>${esc(buf)}</ins>` : mode === '-' ? `<del>${esc(buf)}</del>` : esc(buf); buf = ''; };
+  const push = (md, w) => { if (md !== mode) { flush(); mode = md; } buf += w; };
+  while (i < n && j < m) { if (A[i] === B[j]) { push('=', B[j]); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) push('-', A[i++]); else push('+', B[j++]); }
+  while (i < n) push('-', A[i++]); while (j < m) push('+', B[j++]); flush();
+  return out;
+}
+function renderHunks() {
+  const hs = D.hunks || [], V = $('chgView'), L = $('hunklist');
+  V.innerHTML = ''; L.innerHTML = '';
+  if (!hs.length) { V.innerHTML = '<p class="loading">No source changes in this build.</p>'; return; }
+  const counts = { open: 0, accept: 0, reject: 0, edit: 0 }; hs.forEach((h) => counts[hstatus(h)]++);
+  const fl = document.createElement('div'); fl.className = 'filter';
+  fl.innerHTML = `<button type="button" data-f="all" aria-pressed="${hfilter === 'all'}">All ${hs.length}</button><button type="button" data-f="open" aria-pressed="${hfilter === 'open'}">Open ${counts.open}</button><button type="button" data-f="done" aria-pressed="${hfilter === 'done'}">Decided ${hs.length - counts.open}</button>`;
+  fl.querySelectorAll('button').forEach((b) => { b.onclick = () => { hfilter = b.dataset.f; renderHunks(); }; });
+  L.append(fl);
+  if (!VPS) V.insertAdjacentHTML('beforeend', '<p class="loading">Decisions are saved only on the review site.</p>');
+  hs.forEach((h, i) => {
+    const st = hstatus(h);
+    if (hfilter === 'open' && st !== 'open' || hfilter === 'done' && st === 'open') return;
+    const card = document.createElement('article'); card.className = 'hunk'; card.id = 'h-' + i;
+    const shown = st === 'edit' ? decisions[h.id].text : h.new;
+    card.innerHTML = `<header><span class="where">${esc(h.title)}</span><span class="ln">line ${h.line}</span><span class="st ${st}">${STLABEL[st]}</span></header>` +
+      (h.before ? `<p class="ctx">… ${esc(h.before.slice(-140))}</p>` : '') +
+      `<pre class="src">${srcDiff(h.old, shown)}</pre>` +
+      `<div class="acts"><button type="button" class="a">Accept</button><button type="button" class="r">Reject</button><button type="button" class="e">Edit</button>` +
+      (st !== 'open' ? `<button type="button" class="o">Reset</button>` : '') + `<button type="button" class="c">Comment</button></div>`;
+    const set = async (status, text) => {
+      if (!VPS) { toast('Decisions are saved only on the review site.'); return; }
+      // reject / edit change the web text right away (and reset undoes that); accept is only a mark
+      const cur = st === 'edit' ? decisions[h.id].text : st === 'reject' ? h.old : h.new;
+      const target = status === 'reject' ? h.old : status === 'edit' ? text : h.new;
+      if (ED.ready && cur !== target) {
+        if (!cur.trim()) { toast('This change re-inserts deleted text: edit the paragraph in the Edit view instead.'); return; }
+        const r = await edApply(h.doc, h.line, cur, target, 'review');
+        if (!r.ok) { toast(r.error); return; }
+        toast(status === 'open' ? 'Change restored in the text.' : 'Applied to the text; the PDF updates in a second, the tracked-changes view after the background rebuild.');
+      }
+      try { await api('decisions/' + h.id, 'PUT', { status, text }); if (status === 'open') delete decisions[h.id]; else decisions[h.id] = { status, text };
+        const y = $('main').scrollTop; renderHunks(); $('main').scrollTop = y; }
+      catch (e) { toast('Could not save (' + e.message + ').'); }
+    };
+    card.querySelector('.a').onclick = () => set('accept');
+    card.querySelector('.r').onclick = () => set('reject');
+    card.querySelector('.o')?.addEventListener('click', () => set('open'));
+    card.querySelector('.c').onclick = () => openCommentDialog(`${h.title}, line ${h.line} (change ${h.id})`, h.new.slice(0, 600));
+    card.querySelector('.e').onclick = () => {
+      if (card.querySelector('textarea')) return;
+      const ta = document.createElement('textarea'); ta.value = shown;
+      const row = document.createElement('div'); row.className = 'acts';
+      row.innerHTML = '<button type="button" class="a">Save edit</button><button type="button">Cancel</button>';
+      card.append(ta, row); ta.focus();
+      row.children[0].onclick = () => set('edit', ta.value);
+      row.children[1].onclick = () => { ta.remove(); row.remove(); };
+    };
+    V.append(card);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'hk'; b.id = 'hk-' + i;
+    b.innerHTML = `<div class="top"><span class="st ${st}">${STLABEL[st]}</span><span class="where">${esc(h.doc)} · line ${h.line}</span></div><div class="txt"></div>`;
+    b.querySelector('.txt').textContent = h.new.replace(/\s+/g, ' ').slice(0, 140) || '(deleted text)';
+    b.onclick = () => hgo(i);
+    L.append(b);
+  });
+}
+function hgo(i) {
+  const el = $('h-' + i); if (!el) return;
+  hcur = i; document.querySelectorAll('.hunk.cur, .hk.cur').forEach((e) => e.classList.remove('cur')); el.classList.add('cur');
+  $('hk-' + i)?.classList.add('cur'); $('hk-' + i)?.scrollIntoView({ block: 'nearest' });
+  el.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+}
+document.addEventListener('keydown', (e) => {
+  if (state.view !== 'changes' || e.target.closest?.('input, textarea, [contenteditable]') || e.metaKey || e.ctrlKey || e.altKey) return;
+  const ids = [...document.querySelectorAll('.hunk')].map((x) => +x.id.slice(2));
+  const pos = ids.indexOf(hcur);
+  if (e.key === 'j') hgo(ids[Math.min(ids.length - 1, pos + 1)] ?? ids[0]);
+  else if (e.key === 'k') hgo(ids[Math.max(0, pos - 1)] ?? ids[0]);
+  else if (hcur >= 0 && $('h-' + hcur)) {
+    const card = $('h-' + hcur);
+    if (e.key === 'a') card.querySelector('.a').click(); else if (e.key === 'r') card.querySelector('.r').click(); else if (e.key === 'e') { e.preventDefault(); card.querySelector('.e').click(); }
+  }
+});
+if (VPS) api('decisions').then((d) => { decisions = d; renderHunks(); }, () => toast('Could not load the saved decisions.'));
+
+// ---------- live editor (VPS mode). The server keeps the text in git and compiles a document in about a second after
+// each save; the PDF below is that compile (no change marking). Click a paragraph to open its LaTeX source.
+const ED = { ready: false, src: {}, status: {}, pages: {}, block: null, rendering: {}, again: {}, t0: null };
+const LIVE = (D.meta.cfg_docs || D.docs).map((d) => ({ key: d.key, title: d.title, file: d.file }));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function apiRaw(path, method = 'GET', body) {
+  const r = await fetch(API + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  let j = {}; try { j = await r.json(); } catch (e) { /* empty */ }
+  return { status: r.status, ok: r.ok, data: j };
+}
+async function edLoadSrc(doc) {
+  const s = await api('src/' + doc);
+  ED.src[doc] = { rev: s.rev, lines: s.text.split('\n') };
+  return ED.src[doc];
+}
+// replace a block of source lines on the server (used by the editor and by Reject / Edit in the Changes list)
+async function edApply(doc, start, old, nw, who = 'web') {
+  const rev = ED.src[doc]?.rev || '';
+  const r = await apiRaw('edit/' + doc, 'POST', { rev, start, old, new: nw, who });
+  if (r.ok) { ED.t0 = performance.now(); ED.waitDoc = doc; await edLoadSrc(doc).catch(() => {}); edHistory(); return { ok: true, ...r.data }; }
+  return { ok: false, status: r.status, error: r.status === 409 ? 'This text was changed in the meantime (another save or a laptop sync).' : (r.data.error || 'HTTP ' + r.status) };
+}
+function blockAt(doc, line) {
+  const L = ED.src[doc].lines; let i = Math.min(Math.max(line - 1, 0), L.length - 1);
+  if (!L[i].trim()) { let j = i; while (j < L.length - 1 && !L[j].trim()) j++; if (!L[j].trim()) { j = i; while (j > 0 && !L[j].trim()) j--; } i = j; }
+  let a = i, b = i;
+  while (a > 0 && L[a - 1].trim() && i - a < 40) a--;
+  while (b < L.length - 1 && L[b + 1].trim() && b - i < 40) b++;
+  return { start: a + 1, end: b + 1 };
+}
+
+// --- rendering the live PDFs (pages are swapped in place; the page under the viewport keeps its position)
+function liveHolder(doc) {
+  let h = $('live-' + doc);
+  if (!h) {
+    h = document.createElement('div'); h.className = 'livedoc'; h.id = 'live-' + doc;
+    const t = LIVE.find((d) => d.key === doc).title;
+    h.innerHTML = `<div class="doc-title" id="ldoc-${doc}">${t}<span class="bst" id="lbst-${doc}"></span></div><div class="pages"><div class="loading">Compiling…</div></div>`;
+    $('liveView').append(h);
+  }
+  return h;
+}
+const tlFit = new ResizeObserver((entries) => {
+  for (const e of entries) { const el = e.target, P = el._P; if (P) el.querySelector('.textLayer').style.transform = `scale(${el.clientWidth / P.vp.width})`; }
+});
+async function edRender(doc) {
+  if (ED.rendering[doc]) { ED.again[doc] = true; return; }
+  ED.rendering[doc] = true;
+  try {
+    do {
+      ED.again[doc] = false;
+      const s = ED.status[doc]; if (!s?.pdf) break;
+      const pdf = await pdfjsLib.getDocument({ url: s.pdf }).promise;
+      const holder = liveHolder(doc), box = holder.querySelector('.pages'), main = $('main');
+      const width = Math.min(900, Math.max(400, main.clientWidth - 32));
+      // anchor: the first page of any document that reaches into the viewport
+      const top = main.getBoundingClientRect().top; let anchor = null;
+      if (!$('liveView').hidden && main.scrollTop > 2) for (const el of $('liveView').querySelectorAll('.page')) { const r = el.getBoundingClientRect(); if (r.bottom > top + 4) { anchor = { el, doc: el.dataset.doc, n: +el.dataset.n, off: r.top - top }; break; } }
+      const frag = document.createElement('div'); frag.className = 'pages'; const pages = {};
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const page = await pdf.getPage(n);
+        const vp0 = page.getViewport({ scale: 1 }), scale = width / vp0.width, vp = page.getViewport({ scale });
+        const el = document.createElement('section'); el.className = 'page'; el.dataset.doc = doc; el.dataset.n = n;
+        el.style.aspectRatio = `${vp.width} / ${vp.height}`; el.setAttribute('aria-label', `${LIVE.find((d) => d.key === doc).title}, page ${n}`);
+        el.innerHTML = `<span class="num">${n}</span>`;
+        const tl = document.createElement('div'); tl.className = 'textLayer'; tl.style.setProperty('--scale-factor', scale);
+        tl.style.width = vp.width + 'px'; tl.style.height = vp.height + 'px'; el.append(tl);
+        const P = { el, page, vp0, vp, scale }; el._P = P; pages[n] = P;
+        el._paint = async () => {
+          el._paint = null;
+          const dpr = Math.min(2, window.devicePixelRatio || 1), cv = document.createElement('canvas');
+          cv.width = Math.round(vp.width * dpr); cv.height = Math.round(vp.height * dpr);
+          await page.render({ canvasContext: cv.getContext('2d'), viewport: page.getViewport({ scale: scale * dpr }) }).promise;
+          el.querySelector('canvas')?.remove(); el.insertBefore(cv, tl);
+          const tc = await page.getTextContent();
+          await pdfjsLib.renderTextLayer({ textContentSource: tc, container: tl, viewport: vp, textDivs: [] }).promise;
+          tl.style.transform = `scale(${el.clientWidth / vp.width})`;
+        };
+        frag.append(el);
+      }
+      // paint the pages that will be on screen before swapping (no white flash)
+      const near = anchor && anchor.doc === doc ? [anchor.n, anchor.n + 1, anchor.n - 1] : [];
+      box.querySelectorAll('.page').forEach((el) => { tlFit.unobserve(el); painter.unobserve(el); });
+      box.replaceWith(frag); // layout first (aspect ratios), then restore the scroll position
+      ED.pages[doc] = pages;
+      if (anchor) {
+        const el = anchor.doc === doc ? pages[Math.min(anchor.n, pdf.numPages)]?.el : anchor.el;
+        if (el && el.isConnected) main.scrollTop += el.getBoundingClientRect().top - top - anchor.off;
+      }
+      for (const n of near) if (pages[n]?.el._paint) await pages[n].el._paint();
+      for (const P of Object.values(pages)) { tlFit.observe(P.el); if (P.el._paint) painter.observe(P.el); }
+      if (ED.block?.doc === doc) edHighlight();
+      if (ED.t0 && ED.waitDoc === doc) {
+        edMsg(`Updated in ${((performance.now() - ED.t0) / 1000).toFixed(1)} s (compile ${s.pass_times?.[0] ?? '?'} s)` +
+          (s.state === 'running' ? ', cross-references follow.' : '.') + edErrText(s), s.errors?.length ? 'err' : 'ok');
+        ED.t0 = null;
+      }
+    } while (ED.again[doc]);
+  } catch (e) {
+    toast('Could not show the new PDF: ' + (e?.message || e));
+  } finally { ED.rendering[doc] = false; }
+}
+const edErrText = (s) => s.errors?.length ? ` ${s.errors.length} LaTeX error${s.errors.length > 1 ? 's' : ''}: ${s.errors[0].line ? 'line ' + s.errors[0].line + ': ' : ''}${s.errors[0].msg}` : '';
+
+// --- build status: one long poll per document; a new compile (own save or laptop sync) re-renders that PDF
+function ago(t) { const s = Math.max(0, Date.now() / 1000 - t); return s < 60 ? `${Math.round(s)} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : new Date(t * 1000).toLocaleString(); }
+function edBuilds() {
+  const B = $('ed-builds'); B.innerHTML = '';
+  for (const { key, title } of LIVE) {
+    const s = ED.status[key] || {}, st = s.state || 'idle';
+    const lab = { ok: 'Up to date', running: 'Compiling…', error: 'Error', idle: 'Idle' }[st] || st;
+    const d = document.createElement('div'); d.className = 'bstat';
+    d.innerHTML = `<span class="pill ${st}">${lab}</span><span class="d">${title}</span><span></span><span class="s"></span>`;
+    d.querySelector('.s').textContent = (s.finished ? `compiled ${ago(s.finished)}` + (s.total ? ` in ${s.total} s` : '') : '') + (s.message ? ' · ' + s.message : '') +
+      (s.missing?.length ? ` · missing figure: ${s.missing.join(', ')}` : '') + (s.undefined?.length ? ` · undefined refs: ${s.undefined.join(', ')}` : '');
+    if (s.errors?.length) {
+      const ul = document.createElement('ul'); ul.className = 'errs';
+      for (const e of s.errors.slice(0, 6)) {
+        const li = document.createElement('li'), b = document.createElement('button'); b.type = 'button';
+        b.textContent = (e.line ? `line ${e.line}: ` : '') + e.msg + (e.context ? ' — ' + e.context : '');
+        if (e.line && (!e.file || e.file.endsWith(LIVE.find((d) => d.key === key).file || '\0'))) b.onclick = () => edOpen(key, e.line); else b.disabled = true;
+        li.append(b); ul.append(li);
+      }
+      d.append(ul);
+    }
+    B.append(d);
+    const bst = $('lbst-' + key); if (bst) bst.textContent = st === 'running' ? 'compiling…' : st === 'error' ? 'error, showing the last good version' : s.finished ? `compiled ${ago(s.finished)}` : '';
+  }
+}
+setInterval(() => { if (state.view === 'edit') edBuilds(); }, 15000);
+async function edWatch(doc) {
+  let since = -1;
+  for (;;) {
+    try {
+      const s = await api(`build/${doc}?since=${since}`);
+      const prev = ED.status[doc]; since = s.ver; ED.status[doc] = s;
+      edBuilds();
+      if (s.seq && s.pdf && (!prev || prev.seq !== s.seq || !ED.pages[doc])) { edRender(doc); edHistory(); }
+      if (s.state === 'error' && ED.t0 && ED.waitDoc === doc) { edMsg('LaTeX stopped: ' + (s.message || '') + edErrText(s), 'err'); ED.t0 = null; }
+    } catch (e) { await sleep(4000); }
+  }
+}
+
+// --- the paragraph editor
+function edMsg(t, cls = '') { const m = $('ed-msg'); m.className = 'ed-msg ' + cls; m.textContent = t; }
+const draftKey = (B) => `pr-draft:${B.doc}:${B.start}`;
+function edDirty() { return ED.block && $('ed-text').value !== ED.block.old; }
+async function edOpen(doc, line, hint) {
+  if (edDirty() && !(await edSave())) return;
+  try { await edLoadSrc(doc); } catch (e) { toast('Could not load the source.'); return; }
+  let L = ED.src[doc].lines, { start, end } = blockAt(doc, line);
+  if (hint?.word && bestMatch(L.slice(start - 1, end).join('\n'), hint).score < 8) {
+    // synctex points at the macro that typesets the text (\maketitle for the title / abstract, ...): find the clicked
+    // words in the whole source instead
+    const all = L.join('\n'), m = bestMatch(all, hint);
+    if (m.at >= 0 && m.score >= 12) ({ start, end } = blockAt(doc, all.slice(0, m.at).split('\n').length));
+  }
+  const old = L.slice(start - 1, end).join('\n');
+  ED.block = { doc, start, end, old, rev: ED.src[doc].rev };
+  $('ed-where').textContent = LIVE.find((d) => d.key === doc).title;
+  $('ed-lines').textContent = start === end ? `line ${start}` : `lines ${start}–${end}`;
+  const ta = $('ed-text'); ta.value = old;
+  let draft = null; try { draft = JSON.parse(localStorage.getItem(draftKey(ED.block)) || 'null'); } catch (e) { /* no storage */ }
+  if (draft && draft.old === old && draft.text !== old) { ta.value = draft.text; edMsg('Restored your unsaved text for this paragraph.'); } else edMsg('');
+  $('editor').hidden = false; document.querySelector('.app').classList.add('editing');
+  ta.focus();
+  const at = caretFor(ta.value, hint);
+  if (at >= 0) { ta.setSelectionRange(at, at + (hint.word.length)); const before = ta.value.slice(0, at).split('\n').length; ta.scrollTop = Math.max(0, (before - 3) * 21); }
+  else { ta.setSelectionRange(0, 0); ta.scrollTop = 0; }
+  edHighlight(true);
+}
+function edClose(force) {
+  if (!force && edDirty() && !confirm('Discard the unsaved changes to this paragraph?')) return;
+  if (ED.block) try { localStorage.removeItem(draftKey(ED.block)); } catch (e) { /* no storage */ }
+  ED.block = null; $('editor').hidden = true; document.querySelector('.app').classList.remove('editing');
+  document.querySelectorAll('.ehl').forEach((e) => e.remove());
+}
+async function edSave() {
+  const B = ED.block; if (!B) return true;
+  const text = $('ed-text').value;
+  if (text === B.old) { edMsg('No changes to save.'); return true; }
+  $('ed-save').disabled = true; edMsg('Saving…');
+  try {
+    const r = await edApply(B.doc, B.start, B.old, text);
+    if (!r.ok) {
+      edMsg(r.error + ' Your text is still in the box.', 'err');
+      if (r.status === 409) { const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Show the current version'; b.onclick = () => showCurrent(B); $('ed-msg').append(b); }
+      return false;
+    }
+    try { localStorage.removeItem(draftKey(B)); } catch (e) { /* no storage */ }
+    B.old = text; B.start = r.start; B.end = r.start + text.split('\n').length - 1; B.rev = r.rev;
+    $('ed-lines').textContent = B.start === B.end ? `line ${B.start}` : `lines ${B.start}–${B.end}`;
+    edMsg('Saved; compiling…');
+    return true;
+  } catch (e) { edMsg('Could not save (' + e.message + '). Your text is still in the box.', 'err'); return false; }
+  finally { $('ed-save').disabled = false; }
+}
+async function showCurrent(B) {
+  // a 409: show what the paragraph is now; the user's text stays available for copying
+  const mine = $('ed-text').value;
+  await edLoadSrc(B.doc);
+  const L = ED.src[B.doc].lines, first = B.old.split('\n')[0].slice(0, 40);
+  let line = L.findIndex((l) => first && l.startsWith(first)) + 1 || B.start;
+  const { start, end } = blockAt(B.doc, line);
+  ED.block = { doc: B.doc, start, end, old: L.slice(start - 1, end).join('\n'), rev: ED.src[B.doc].rev };
+  $('ed-text').value = ED.block.old + '\n\n% ---- your unsaved text (edit the paragraph above, then delete this part) ----\n% ' + mine.split('\n').join('\n% ');
+  edMsg('Current version loaded; your text is below it as % comments.', 'err');
+  edHighlight(true);
+}
+async function edStep(dir) {
+  const B = ED.block; if (!B) return;
+  if (edDirty() && !(await edSave())) return;
+  const L = ED.src[B.doc].lines; let i = dir > 0 ? B.end : B.start - 2;   // 0-based index next to the block
+  while (i >= 0 && i < L.length && !L[i].trim()) i += dir;
+  if (i < 0 || i >= L.length) return;
+  await edOpen(B.doc, i + 1);
+}
+async function edHighlight(scroll) {
+  const B = ED.block; document.querySelectorAll('.ehl').forEach((e) => e.remove());
+  if (!B || !ED.pages[B.doc]) return;
+  let boxes = [];
+  try { boxes = await api(`boxes/${B.doc}?from=${B.start}&to=${B.end}`); } catch (e) { return; }
+  if (ED.block !== B) return;
+  let first = null;
+  for (const b of boxes) {
+    const P = ED.pages[B.doc][b.page]; if (!P) continue;
+    const d = document.createElement('div'); d.className = 'ehl';
+    d.style.left = (100 * b.x / P.vp0.width) + '%'; d.style.width = (100 * b.w / P.vp0.width) + '%';
+    d.style.top = (100 * b.y / P.vp0.height) + '%'; d.style.height = (100 * b.h / P.vp0.height) + '%';
+    P.el.append(d); first ??= d;
+  }
+  if (scroll && first) { const r = first.getBoundingClientRect(), m = $('main').getBoundingClientRect(); if (r.top < m.top || r.top > m.bottom - 60) $('main').scrollTop += r.top - m.top - 80; }
+}
+// the word under the click, with some context, to put the cursor on it in the source
+function wordsAt(x, y) {
+  let node, off;
+  if (document.caretRangeFromPoint) { const r = document.caretRangeFromPoint(x, y); if (!r) return null; node = r.startContainer; off = r.startOffset; }
+  else if (document.caretPositionFromPoint) { const p = document.caretPositionFromPoint(x, y); if (!p) return null; node = p.offsetNode; off = p.offset; }
+  if (!node || node.nodeType !== 3 || !node.parentElement?.closest('.textLayer')) return null;
+  const t = node.textContent; let a = off, b = off;
+  while (a > 0 && /\S/.test(t[a - 1])) a--; while (b < t.length && /\S/.test(t[b])) b++;
+  return { word: t.slice(a, b).replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''), before: t.slice(Math.max(0, a - 40), a), after: t.slice(b, b + 40) };
+}
+function bestMatch(text, hint) {
+  // where the clicked word is in `text`, scored by how much of the surrounding words match: {at, score}
+  if (!hint || !hint.word || hint.word.length < 2) return { at: -1, score: -1 };
+  const nb = norm(hint.before), na = norm(hint.after);
+  let best = -1, bs = -1, i = -1;
+  while ((i = text.indexOf(hint.word, i + 1)) >= 0) {
+    const pb = norm(text.slice(Math.max(0, i - 80), i)), pa = norm(text.slice(i + hint.word.length, i + hint.word.length + 80));
+    let s = 0; while (s < nb.length && s < pb.length && nb[nb.length - 1 - s] === pb[pb.length - 1 - s]) s++;
+    let t = 0; while (t < na.length && t < pa.length && na[t] === pa[t]) t++;
+    if (s + t > bs) { bs = s + t; best = i; }
+  }
+  return { at: best, score: bs };
+}
+const caretFor = (text, hint) => bestMatch(text, hint).at;
+$('liveView').addEventListener('click', async (e) => {
+  if (e.target.closest('button, a') || e.detail > 1) return;
+  const sel = getSelection(); if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+  const el = e.target.closest('.page'); if (!el || !el._P) return;
+  const P = el._P, r = el.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * P.vp0.width, y = (e.clientY - r.top) / r.height * P.vp0.height;
+  const hint = wordsAt(e.clientX, e.clientY);
+  let res;
+  try { res = await api(`synctex/${el.dataset.doc}?page=${el.dataset.n}&x=${x.toFixed(1)}&y=${y.toFixed(1)}`); } catch (err) { toast('Could not look up the source line.'); return; }
+  if (!res.line) { toast('No source text found at this point (page header or footer?).'); return; }
+  edOpen(el.dataset.doc, res.line, hint);
+});
+$('ed-save').onclick = () => edSave();
+$('ed-discard').onclick = () => { if (!ED.block) return; $('ed-text').value = ED.block.old; try { localStorage.removeItem(draftKey(ED.block)); } catch (e) { /* no storage */ } edMsg('Changes discarded.'); };
+$('ed-close').onclick = () => edClose();
+$('ed-prev').onclick = () => edStep(-1); $('ed-next').onclick = () => edStep(1);
+$('ed-text').addEventListener('input', () => { if (ED.block) try { localStorage.setItem(draftKey(ED.block), JSON.stringify({ old: ED.block.old, text: $('ed-text').value })); } catch (e) { /* no storage */ } });
+$('editor').addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.key === 's')) { e.preventDefault(); edSave(); }
+  else if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); edStep(1); }
+  else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); edStep(-1); }
+  else if (e.key === 'Escape') { e.preventDefault(); edClose(); }
+});
+window.addEventListener('beforeunload', (e) => { if (edDirty()) { e.preventDefault(); e.returnValue = ''; } });
+
+// --- find in the source
+let findT = null;
+$('ed-find').addEventListener('input', () => { clearTimeout(findT); findT = setTimeout(edFind, 200); });
+async function edFind() {
+  const q = $('ed-find').value.trim().toLowerCase(), H = $('ed-hits'); H.innerHTML = '';
+  if (q.length < 3) return;
+  for (const { key, title } of LIVE) {
+    if (!ED.src[key]) try { await edLoadSrc(key); } catch (e) { continue; }
+    let n = 0;
+    ED.src[key].lines.forEach((l, i) => {
+      const k = l.toLowerCase().indexOf(q); if (k < 0 || n >= 12) return; n++;
+      const b = document.createElement('button'); b.type = 'button';
+      b.innerHTML = `<span class="w">${title} · line ${i + 1}</span>`;
+      b.append(document.createTextNode('…' + l.slice(Math.max(0, k - 40), k + q.length + 60) + '…'));
+      b.onclick = () => edOpen(key, i + 1);
+      H.append(b);
+    });
+  }
+  if (!H.children.length) H.innerHTML = '<p class="empty">Not found.</p>';
+}
+
+// --- history of saved edits (the server's git log), with undo
+let histT = null;
+function edHistory() { clearTimeout(histT); histT = setTimeout(edHistoryNow, 400); }
+async function edHistoryNow() {
+  let list = []; try { list = await api('history?n=40'); } catch (e) { return; }
+  const H = $('ed-hist'); H.innerHTML = list.length ? '' : '<p class="empty">No edits yet.</p>';
+  for (const c of list) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'h';
+    b.innerHTML = `<span class="w">${ago(c.time)}${c.merge ? ' · laptop sync' : ''}</span><span class="m"></span>`;
+    b.querySelector('.m').textContent = c.msg.replace(/^web: /, '');
+    b.onclick = () => showPatch(c);
+    H.append(b);
+  }
+}
+async function showPatch(c) {
+  let p = ''; try { p = (await api('history/' + c.rev)).patch; } catch (e) { toast('Could not load this edit.'); return; }
+  const body = p.split('\n').slice(4).map((l) => /^(diff|index|---|\+\+\+|@@)/.test(l) ? `<span class="fh">${esc(l)}</span>` :
+    esc(l).replace(/\[-(.*?)-\]/g, '<del>$1</del>').replace(/\{\+(.*?)\+\}/g, '<ins>$1</ins>')).join('\n');
+  const d = document.createElement('div'); d.className = 'cdlg';
+  d.innerHTML = `<div role="dialog" aria-label="Saved edit" style="width:min(860px,100%)"><b></b><div style="color:var(--fg3);font-size:12px">${new Date(c.time * 1000).toLocaleString()} · ${c.rev.slice(0, 8)}</div>` +
+    `<div class="patch">${body || '(no text change)'}</div><div class="row"><button type="button" class="c">Close</button><button type="button" class="p">Undo this edit</button></div></div>`;
+  d.querySelector('b').textContent = c.msg;
+  document.body.append(d);
+  const close = () => d.remove();
+  d.querySelector('.c').onclick = close; d.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  d.querySelector('.p').onclick = async () => {
+    const r = await apiRaw('revert/' + c.rev, 'POST', {});
+    if (r.ok) { close(); toast('Undone; the PDF updates in a second.'); ED.t0 = performance.now(); edHistory(); if (ED.block) edClose(true); }
+    else toast(r.data.error || 'Could not undo.');
+  };
+  d.querySelector('.c').focus();
+}
+
+// --- the tracked-changes view (latexdiff): rendered when first opened; the server's rebuild replaces the
+// laptop build's data once it exists
+let trackedDone = false;
+async function ensureTracked() {
+  if (ED.ready && trackedDone) {      // a newer background rebuild: reload its data and re-render the tracked view
+    let st = null; try { st = await api('editor'); } catch (e) { /* keep what is shown */ }
+    if (st?.diff?.built && st.diff.built > (ED.diffBuilt || 0) && await loadServerReview()) {
+      state.flat = []; state.pages = {}; state.cur = -1;
+      $('paperView').innerHTML = '<div class="loading" id="loading">Rendering the paper…</div>';
+      renderMeta(); renderList(); renderFigures(); renderHunks();
+      trackedDone = false; toast('Tracked changes updated to the latest rebuild.');
+    }
+  }
+  if (trackedDone) return; trackedDone = true;
+  const main = $('paperView');
+  try {
+    for (const doc of D.docs) await renderDoc(doc, main);
+    $('loading')?.remove();
+  } catch (e) { if ($('loading')) $('loading').textContent = 'The PDF could not be rendered: ' + (e?.message || e); }
+}
+async function loadServerReview() {
+  try {
+    const r = await apiRaw('review-data');
+    if (!r.ok || !r.data.docs) return false;
+    D.docs = r.data.docs; D.figures = r.data.figures; D.hunks = r.data.hunks;
+    const st = r.data.meta.status || {}; ED.diffBuilt = st.built || 0;
+    D.meta = { ...r.data.meta, cfg_docs: D.meta.cfg_docs, flatten: D.meta.flatten, mode: 'vps', built: st.built ? new Date(st.built * 1000).toLocaleString() : r.data.meta.built };
+    const v = st.built ? '?v=' + Math.round(st.built) : '';
+    D.docs.forEach((d) => { d.file += v; });
+    return true;
+  } catch (e) { return false; }
+}
+
+// ---------- start
+(async () => {
+  if (VPS) {
+    let st = null; try { st = await api('editor'); } catch (e) { /* editor backend absent */ }
+    ED.ready = !!st?.ready;
+    if (ED.ready) {
+      await loadServerReview();
+      $('v-edit').hidden = false; $('v-paper').textContent = 'Tracked';
+      $('how').innerHTML = '<b>Edit</b>: click a paragraph in the PDF, change its LaTeX and press <b>Ctrl+Enter</b>; the page updates in a second or two. <b>Tracked</b>: all changes since the baseline (rebuilt in the background). Select text and press <b>C</b> to comment.';
+    }
+  }
+  renderMeta(); renderList(); renderFigures(); renderHunks();
+  if (!VPS) Promise.resolve(window.claude?.use?.('comments')).then((c) => { comments = c ?? null; }, () => { comments = null; })
+    .then(() => { if (!comments && !VPS) $('how').textContent = 'Select text in the paper and use the comment tool of claude.ai on it; Send to Claude reaches the session that built this page.'; });
+  const hv = location.hash.slice(1);
+  if (ED.ready) {
+    LIVE.forEach((d) => liveHolder(d.key));
+    setView(['paper', 'figures', 'changes', 'comments'].includes(hv) ? hv : 'edit');
+    for (const d of LIVE) edWatch(d.key);
+    edHistory();
+  } else {
+    if (['figures', 'changes', 'comments'].includes(hv)) setView(hv); else setView('paper');
+  }
+})();
+</script>

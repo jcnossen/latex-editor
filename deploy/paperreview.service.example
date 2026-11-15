@@ -1,0 +1,17 @@
+[Unit]
+Description=LaTeX review / editor app
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+ExecStart=/usr/bin/python3 -u /srv/paperreview/app/app.py --site /srv/paperreview/site --db /srv/paperreview/data/review.db --data /srv/paperreview/data
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/paperreview/data
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+# project-specific and generated: never commit
+config.json
+site/
+sync-backups/
+conflicts/
+decisions.json
+comments.json
+__pycache__/
+*.pyc
+*.pdf
+*.tex
+*.bib

@@ -1,0 +1,22 @@
+# A dedicated nginx site for the review app. Only the secret path is served; everything else is a 404.
+# Replace review.example.org and <TOKEN> (the contents of /srv/paperreview/token), get a certificate with certbot,
+# then: nginx -t && systemctl reload nginx
+server {
+    server_name review.example.org;
+
+    location = /<TOKEN> { return 302 /<TOKEN>/; }
+    location ^~ /<TOKEN>/ {
+        proxy_pass http://127.0.0.1:8801/;     # the trailing slash strips the token prefix
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;                # build status uses 25 s long polls
+        client_max_body_size 5m;
+        access_log off;                        # keeps the token out of the access log
+        add_header X-Robots-Tag "noindex, nofollow" always;
+        add_header Cache-Control "private, no-store" always;
+    }
+    location / { return 404; }
+
+    listen 80;
+    listen [::]:80;
+}

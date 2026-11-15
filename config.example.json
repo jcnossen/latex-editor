@@ -1,0 +1,15 @@
+{
+  "title": "Manuscript review",
+  "repo": "..",
+  "baseline_tag": "submitted-v1",
+  "docs": [
+    {"key": "main", "file": "main.tex", "title": "Main text"},
+    {"key": "SI", "file": "supplement.tex", "title": "Supplementary information", "fig_prefix": "Supplementary Fig. "}
+  ],
+  "support": ["refs.bib"],
+  "flatten_markup": false,
+  "ssh": ["ssh", "review-server"],
+  "server_root": "/srv/paperreview",
+  "port": 8801,
+  "service": "paperreview"
+}
